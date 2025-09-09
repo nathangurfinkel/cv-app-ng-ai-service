@@ -1,0 +1,47 @@
+# Core FastAPI and web framework dependencies
+fastapi
+uvicorn[standard]
+mangum
+
+# OpenAI API client
+openai
+
+# Environment and configuration
+python-dotenv
+
+# Document processing
+PyMuPDF
+python-docx
+
+# Machine Learning and AI
+numpy
+
+# LangChain ecosystem
+langchain-community
+langchain-openai
+langchain
+langchain-chroma
+langchain-pinecone
+
+# Vector databases
+pinecone
+chromadb
+
+# Evaluation framework
+ragas
+datasets
+
+# Data processing
+pandas
+
+# HTTP client for async requests
+httpx
+
+# Pydantic for data validation
+pydantic
+
+# CORS middleware
+python-multipart
+
+# Security and rate limiting
+slowapi
