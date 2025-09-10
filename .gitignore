@@ -16,6 +16,7 @@ parts/
 sdist/
 var/
 wheels/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -27,40 +28,133 @@ env/
 ENV/
 env.bak/
 venv.bak/
+.venv/
 
 # Environment variables
 .env
-.venv
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-
-# Deployment
-ai-service-deployment.zip
-*.zip
 
 # Logs
 *.log
 logs/
 
 # Temporary files
-tmp/
+*.tmp
+*.temp
 temp/
+tmp/
+
+# AWS
+.aws/
+aws-credentials.json
+
+# API Keys and Secrets
+api-keys.json
+secrets.json
+credentials.json
+*.pem
+*.key
+
+# Deployment artifacts
+*.zip
+*.tar.gz
+deployment-package/
+package/
+
+# Test files
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# Poetry
+poetry.lock
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# Local configuration
+local_config.py
+config_local.py
+
+# API Gateway configs (may contain sensitive data)
+api-gateway-config.json
+gateway-config.json
+
+# Response files (may contain sensitive data)
+response.json
+*.response.json
+
+# Docker
+.dockerignore
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Kubernetes
+*.kubeconfig
