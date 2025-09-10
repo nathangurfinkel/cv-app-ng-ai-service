@@ -1,0 +1,30 @@
+# requirements.in
+
+# Core FastAPI and web framework dependencies
+fastapi
+uvicorn[standard]
+mangum
+
+# OpenAI API client
+openai>=1.6.1,<2.0.0
+
+# LangChain ecosystem
+langchain>=0.0.350
+langchain-openai>=0.0.2
+langchain-community>=0.0.10
+langchain-pinecone>=0.0.1
+
+# Vector databases
+pinecone-client
+
+# Pydantic (let LangChain decide the best version)
+pydantic
+
+# Machine Learning (let other libs specify the version)
+numpy
+
+# --- Other utilities ---
+python-dotenv
+httpx
+python-multipart
+slowapi

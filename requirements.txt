@@ -4,35 +4,22 @@ uvicorn[standard]
 mangum
 
 # OpenAI API client
-openai
+openai>=1.6.1,<5.0.0
 
 # Environment and configuration
 python-dotenv
 
-# Document processing
-PyMuPDF
-python-docx
+# Machine Learning and AI (minimal)
+numpy==1.24.3
 
-# Machine Learning and AI
-numpy
+# LangChain ecosystem (minimal for cloud deployment)
+langchain>=0.0.350
+langchain-openai>=0.0.2
+langchain-community>=0.0.10
+langchain-pinecone>=0.0.1
 
-# LangChain ecosystem
-langchain-community
-langchain-openai
-langchain
-langchain-chroma
-langchain-pinecone
-
-# Vector databases
-pinecone
-chromadb
-
-# Evaluation framework
-ragas
-datasets
-
-# Data processing
-pandas
+# Vector databases (Pinecone only for cloud)
+pinecone-client
 
 # HTTP client for async requests
 httpx
@@ -45,3 +32,7 @@ python-multipart
 
 # Security and rate limiting
 slowapi
+
+# Evaluation framework (simplified for Lambda)
+# ragas>=0.1.0
+# datasets>=2.0.0

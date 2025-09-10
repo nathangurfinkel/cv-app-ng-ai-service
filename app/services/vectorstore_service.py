@@ -1,9 +1,9 @@
 """
 Vectorstore service for document storage and retrieval.
+Cloud-native implementation using Pinecone only.
 """
 from typing import List, Optional
 from langchain_pinecone import PineconeVectorStore
-from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
@@ -63,24 +63,19 @@ class VectorstoreService:
                       "Vectorstore not initialized - OpenAI API key required", "error")
             return
         
-        if settings.MOCK_PINECONE:
-            print_step("Vectorstore Initialization", 
-                      "Using mocked Pinecone (ChromaDB in-memory)", "info")
-            self.vectorstore = Chroma(
-                embedding_function=self.embeddings,
-                collection_name=settings.PINECONE_INDEX_NAME
-            )
-            print_step("Vectorstore Initialization", 
-                      "ChromaDB vectorstore created", "output")
-        else:
-            self._initialize_pinecone()
+        # Always use Pinecone in cloud deployment
+        self._initialize_pinecone()
     
     def _initialize_pinecone(self) -> None:
         """Initialize Pinecone vectorstore."""
         print_step("Vectorstore Initialization", 
                   "Connecting to production Pinecone", "info")
         
-        pinecone_client = PineconeClient(api_key=settings.PINECONE_API_KEY)
+        # Configure Pinecone for Lambda environment (no multiprocessing)
+        pinecone_client = PineconeClient(
+            api_key=settings.PINECONE_API_KEY,
+            pool_threads=1  # Disable multiprocessing for Lambda
+        )
         existing_indexes = pinecone_client.list_indexes().names()
         print_step("Pinecone Index Check", {
             "existing_indexes": existing_indexes
@@ -185,20 +180,5 @@ class VectorstoreService:
         if not self.vectorstore:
             return
             
-        print_step("Vectorstore Cleanup", {
-            "mock_pinecone": settings.MOCK_PINECONE
-        }, "input")
-        
-        if settings.MOCK_PINECONE and hasattr(self.vectorstore, '_collection'):
-            collection_ids = self.vectorstore.get()['ids']
-            if collection_ids:
-                self.vectorstore._collection.delete(ids=collection_ids)
-                print_step("Vectorstore Cleanup", {
-                    "deleted_ids_count": len(collection_ids)
-                }, "output")
-            else:
-                print_step("Vectorstore Cleanup", 
-                          "No existing documents to delete", "output")
-        else:
-            print_step("Vectorstore Cleanup", 
-                      "Vectorstore cleanup not supported for production Pinecone", "info")
+        print_step("Vectorstore Cleanup", 
+                  "Pinecone cleanup not supported in production", "info")

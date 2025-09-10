@@ -10,7 +10,7 @@ from ..services.vectorstore_service import VectorstoreService
 from ..services.evaluation_service import EvaluationService
 from ..services.data_transformation_service import DataTransformationService
 # File processing removed - using cloud-native approach
-from ..utils.security import validate_job_description, validate_cv_text
+from ..utils.security import validate_uploaded_file, validate_job_description, validate_cv_text
 from ..utils.debug import print_step
 
 router = APIRouter(prefix="/cv", tags=["CV"])
@@ -35,15 +35,19 @@ async def tailor_cv(request: CVRequest):
         "user_cv_text_length": len(validated_cv_text)
     }, "input")
 
-    # For now, skip vectorstore operations due to Lambda multiprocessing issues
-    # TODO: Implement alternative RAG approach or use different vectorstore
-    print_step("CV Tailoring", "Skipping vectorstore operations for Lambda compatibility", "info")
+    # Create documents from CV text
+    docs = vectorstore_service.create_documents(validated_cv_text)
     
-    # Use the original CV text directly as context
-    retrieved_context = validated_cv_text
+    # Clear existing documents and add new ones
+    vectorstore_service.clear_vectorstore()
+    vectorstore_service.add_documents(docs)
+
+    # Retrieve relevant documents
+    retrieved_docs = vectorstore_service.retrieve_documents(validated_job_description)
+    retrieved_context = "\n\n".join([doc.page_content for doc in retrieved_docs])
     
     print_step("Document Retrieval", {
-        "retrieved_docs_count": 1,  # Using original CV text as single document
+        "retrieved_docs_count": len(retrieved_docs),
         "retrieved_context_length": len(retrieved_context),
         "retrieved_context_preview": retrieved_context[:200] + "..." if len(retrieved_context) > 200 else retrieved_context
     }, "output")
@@ -72,11 +76,11 @@ async def tailor_cv(request: CVRequest):
             )
         }, "output")
 
-        # Perform evaluation (without retrieved_docs for now)
+        # Perform evaluation
         evaluation_results = await evaluation_service.evaluate_cv_complete(
             request.job_description,
             json.dumps(structured_content),
-            []  # Empty list since we're not using vectorstore
+            retrieved_docs
         )
         
         # Add evaluation to structured content
@@ -107,14 +111,19 @@ async def extract_cv_data(request: ExtractCVRequest):
     }, "input")
 
     try:
-        # For now, skip vectorstore operations due to Lambda multiprocessing issues
-        print_step("CV Data Extraction", "Skipping vectorstore operations for Lambda compatibility", "info")
+        # Create documents from CV text
+        docs = vectorstore_service.create_documents(request.cv_text)
         
-        # Use the original CV text directly as context
-        retrieved_context = request.cv_text
+        # Clear existing documents and add new ones
+        vectorstore_service.clear_vectorstore()
+        vectorstore_service.add_documents(docs)
+
+        # Retrieve relevant documents
+        retrieved_docs = vectorstore_service.retrieve_documents(request.job_description)
+        retrieved_context = "\n\n".join([doc.page_content for doc in retrieved_docs])
         
         print_step("Document Retrieval", {
-            "retrieved_docs_count": 1,  # Using original CV text as single document
+            "retrieved_docs_count": len(retrieved_docs),
             "retrieved_context_length": len(retrieved_context)
         }, "output")
         
