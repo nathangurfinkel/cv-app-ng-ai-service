@@ -1,0 +1,49 @@
+# Core RAG Stack Dependencies
+# Web Framework
+fastapi
+uvicorn
+mangum
+
+# Data Validation
+pydantic
+
+# LangChain Core Components
+langchain
+langchain-core
+langchain-openai
+langchain-pinecone
+
+# AI/ML Libraries
+openai
+langsmith
+pinecone
+
+# Essential Dependencies
+numpy
+tiktoken
+regex
+zstandard
+requests-toolbelt
+simsimd
+
+# HTTP and Networking
+httpx
+httpcore
+requests
+urllib3
+
+# Utilities
+python-multipart
+python-dotenv
+orjson
+pyyaml
+tenacity
+tqdm
+click
+packaging
+python-dateutil
+six
+
+# Type Support
+typing-extensions
+annotated-types
