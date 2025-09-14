@@ -1,0 +1,10 @@
+{
+  "Variables": {
+    "MOCK_PINECONE": "false",
+    "PINECONE_API_KEY": "${PINECONE_API_KEY}",
+    "OPENAI_API_KEY": "${OPENAI_API_KEY}",
+    "VERBOSE": "false",
+    "CORS_ORIGINS": "${CORS_ORIGINS:-https://main.d3q8q8q8q8q8q8.amplifyapp.com}",
+    "DEBUG": "false"
+  }
+}
