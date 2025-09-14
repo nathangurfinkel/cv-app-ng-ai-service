@@ -2,7 +2,7 @@
 Evaluation service for CV assessment.
 """
 import asyncio
-import numpy as np
+import math
 from typing import Dict, Any, List
 from ..core.config import settings
 from ..utils.debug import print_step
@@ -115,7 +115,7 @@ class EvaluationService:
             # Handle NaN values in RAGAS scores
             print_step("RAGAS Score Processing", ragas_scores, "input")
             for key, value in ragas_scores.items():
-                if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
+                if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
                     ragas_scores[key] = 0.0
             print_step("RAGAS Score Processing", "NaN values handled", "output")
             
@@ -165,14 +165,14 @@ class EvaluationService:
         scores = []
         for e in committee_evaluations:
             score = e.get('score', 0)
-            if isinstance(score, (int, float)) and not (np.isnan(score) or np.isinf(score)):
+            if isinstance(score, (int, float)) and not (math.isnan(score) or math.isinf(score)):
                 scores.append(score)
             else:
                 scores.append(0)
         
         committee_analysis = {
             "individual_evaluations": committee_evaluations,
-            "average_score": round(np.mean(scores), 2) if scores else 0.0
+            "average_score": round(sum(scores) / len(scores), 2) if scores else 0.0
         }
         print_step("Committee Score Processing", committee_analysis, "output")
         

@@ -63,7 +63,13 @@ class VectorstoreService:
                       "Vectorstore not initialized - OpenAI API key required", "error")
             return
         
-        # Always use Pinecone in cloud deployment
+        # Check if we should use mock Pinecone
+        if settings.MOCK_PINECONE:
+            print_step("Vectorstore Initialization", 
+                      "Using mock Pinecone - skipping real connection", "info")
+            return
+        
+        # Use real Pinecone in production
         self._initialize_pinecone()
     
     def _initialize_pinecone(self) -> None:

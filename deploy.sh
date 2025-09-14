@@ -21,14 +21,14 @@ echo "📦 Creating deployment package..."
 rm -rf package/
 mkdir -p package
 
-# Copy only essential application code
+# Install optimized dependencies for cloud deployment using Docker for Linux compatibility
+echo "📥 Installing optimized dependencies for Linux Lambda runtime..."
+docker run --rm -v $(pwd):/var/task -w /var/task --platform linux/amd64 python:3.11 sh -c "pip install --no-cache-dir setuptools wheel && pip install --no-cache-dir -r requirements.txt -t package/"
+
+# Copy only essential application code AFTER installing dependencies
 echo "📋 Copying application code..."
 mkdir -p package/app
 cp -r app/* package/app/
-
-# Install optimized dependencies for cloud deployment
-echo "📥 Installing optimized dependencies..."
-pip install --no-cache-dir -r requirements.txt -t package/
 
 # Remove unnecessary files to reduce package size
 echo "🧹 Cleaning up package..."

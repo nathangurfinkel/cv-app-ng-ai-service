@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -22,21 +23,143 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Virtual environments
-venv/
+# Python bytecode
+*.pyc
+*.pyo
+*.pyd
+*.pyc
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
 env/
+venv/
 ENV/
 env.bak/
 venv.bak/
-.venv/
+test-env-*/
+test-env-313/
 
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-*.env
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# AWS
+.aws/
+aws-exports.js
+
+# Lambda deployment packages
+*.zip
+deployment-package/
+layer-package/
+ai-service-deployment-*.zip
+langchain-layer-*.zip
+cv-app-ng-ai-service-*.zip
+
+# Layer files
+layer-arn-*.txt
+layer/
+package/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
 
 # IDE
 .vscode/
@@ -64,97 +187,48 @@ logs/
 temp/
 tmp/
 
-# AWS
-.aws/
-aws-credentials.json
+# Environment variables
+.env.local
+.env.development
+.env.test
+.env.production
 
-# API Keys and Secrets
-api-keys.json
-secrets.json
-credentials.json
-*.pem
-*.key
+# Node modules (if any)
+node_modules/
 
-# Deployment artifacts
-*.zip
-*.tar.gz
-deployment-package/
-package/
+# Build artifacts
+build/
+dist/
+target/
 
-# Test files
+# Test artifacts
+test-results/
+coverage/
+
+# Documentation build
+docs/build/
+site/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Pytest
 .pytest_cache/
-.coverage
+
+# Coverage
 htmlcov/
-.tox/
-.nox/
+.coverage
 coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
 
-# Jupyter Notebook
-.ipynb_checkpoints
+# Local development
+local/
+dev/
 
-# pyenv
-.python-version
+# Installed packages directory
+python/
+packages/
+site-packages/
 
-# pipenv
-Pipfile.lock
-
-# Poetry
-poetry.lock
-
-# Celery
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# Local configuration
-local_config.py
-config_local.py
-
-# API Gateway configs (may contain sensitive data)
-api-gateway-config.json
-gateway-config.json
-
-# Response files (may contain sensitive data)
-response.json
-*.response.json
-
-# Docker
-.dockerignore
-
-# Terraform
-*.tfstate
-*.tfstate.*
-.terraform/
-.terraform.lock.hcl
-
-# Kubernetes
-*.kubeconfig
+# Any other package directories
+*/site-packages/
+*/dist-packages/
