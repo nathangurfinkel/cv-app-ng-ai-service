@@ -6,9 +6,11 @@ set -e
 # Configuration
 FUNCTION_NAME="cv-builder-ai-service"
 AWS_REGION="eu-north-1"
-AWS_ACCOUNT_ID="303774815769"
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ECR_REPOSITORY="cv-builder-ai-service"
 IMAGE_TAG="latest"
+
+echo "📋 AWS Account ID: $AWS_ACCOUNT_ID"
 ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}"
 
 echo "🚀 Starting container-based deployment for RAG stack..."

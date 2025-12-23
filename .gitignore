@@ -143,6 +143,8 @@ cython_debug/
 # AWS
 .aws/
 aws-exports.js
+*.pem
+aws-credentials.json
 
 # Lambda deployment packages
 *.zip
@@ -151,6 +153,11 @@ layer-package/
 ai-service-deployment-*.zip
 langchain-layer-*.zip
 cv-app-ng-ai-service-*.zip
+
+# Local infrastructure tracking (never commit)
+.local-infrastructure.env
+infrastructure-secrets.json
+infrastructure.local.json
 
 # Layer files
 layer-arn-*.txt

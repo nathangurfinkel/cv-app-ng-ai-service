@@ -14,8 +14,11 @@ FUNCTION_NAME="cv-builder-ai-service"
 REGION="eu-north-1"
 RUNTIME="python3.13"
 HANDLER="app.main.handler"
-ROLE_ARN="arn:aws:iam::303774815769:role/lambda-execution-role"
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/lambda-execution-role"
 LAYER_NAME="minimal-dependencies-313-with-numpy"
+
+echo "📋 AWS Account ID: $ACCOUNT_ID"
 
 echo "🚀 Starting complete deployment for Python 3.13..."
 
@@ -115,7 +118,7 @@ aws apigateway put-integration \
     --http-method ANY \
     --type AWS_PROXY \
     --integration-http-method POST \
-    --uri "arn:aws:apigateway:$REGION:lambda:path/2015-03-31/functions/arn:aws:lambda:$REGION:303774815769:function:$FUNCTION_NAME/invocations" \
+    --uri "arn:aws:apigateway:$REGION:lambda:path/2015-03-31/functions/arn:aws:lambda:$REGION:${ACCOUNT_ID}:function:$FUNCTION_NAME/invocations" \
     --region $REGION
 
 # Deploy API
@@ -130,7 +133,7 @@ aws lambda add-permission \
     --statement-id apigateway-invoke \
     --action lambda:InvokeFunction \
     --principal apigateway.amazonaws.com \
-    --source-arn "arn:aws:execute-api:$REGION:303774815769:$API_ID/*/*" \
+    --source-arn "arn:aws:execute-api:$REGION:${ACCOUNT_ID}:$API_ID/*/*" \
     --region $REGION
 
 # Step 13: Test the deployment
@@ -152,6 +155,6 @@ echo "🌐 API Gateway URL: $API_URL"
 echo "📋 Test with: curl $API_URL/health"
 
 echo "✅ Deployment completed successfully!"
-echo "📋 Function ARN: arn:aws:lambda:$REGION:303774815769:function:$FUNCTION_NAME"
+echo "📋 Function ARN: arn:aws:lambda:$REGION:${ACCOUNT_ID}:function:$FUNCTION_NAME"
 echo "📋 Layer ARN: $LAYER_ARN"
 echo "📋 API Gateway URL: $API_URL"
