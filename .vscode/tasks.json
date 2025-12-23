@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Dev",
+      "label": "AI: Dev",
       "type": "shell",
       "command": "python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
       "options": { "cwd": "${workspaceFolder}" },
@@ -10,7 +10,7 @@
       "problemMatcher": []
     },
     {
-      "label": "Deploy",
+      "label": "AI: Deploy",
       "type": "shell",
       "command": "bash ./deploy-container.sh",
       "options": { "cwd": "${workspaceFolder}" },
