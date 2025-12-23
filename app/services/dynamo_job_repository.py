@@ -8,9 +8,38 @@ import time
 from typing import Any, Dict, Optional
 
 import boto3
+from decimal import Decimal
 
 from ..models.job_models import JobStatus
 from .job_repository import JobRepository
+
+
+def _to_dynamo_compatible(value: Any) -> Any:
+    """
+    Recursively convert Python values into DynamoDB-compatible values.
+
+    DynamoDB (via boto3) does not accept float types; use Decimal instead.
+    We convert floats to Decimal using string conversion to avoid binary float artifacts.
+    """
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return [_to_dynamo_compatible(v) for v in value]
+    if isinstance(value, tuple):
+        return [_to_dynamo_compatible(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _to_dynamo_compatible(v) for k, v in value.items()}
+    return str(value)
 
 
 class DynamoJobRepository(JobRepository):
@@ -32,7 +61,7 @@ class DynamoJobRepository(JobRepository):
                 "job_id": job_id,
                 "job_type": job_type,
                 "status": status.value,
-                "payload": payload,
+                "payload": _to_dynamo_compatible(payload),
                 "created_at": now,
                 "updated_at": now,
                 "ttl": ttl_epoch_seconds,
@@ -60,7 +89,7 @@ class DynamoJobRepository(JobRepository):
         if result is not None:
             expr.append("#r = :r")
             names["#r"] = "result"
-            values[":r"] = result
+            values[":r"] = _to_dynamo_compatible(result)
             # clear error fields on success
             expr.append("error_code = :ec")
             expr.append("error_message = :em")

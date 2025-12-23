@@ -5,6 +5,7 @@ set -e
 
 # Configuration
 FUNCTION_NAME="cv-builder-ai-service"
+WORKER_FUNCTION_NAME="cv-builder-ai-worker"
 AWS_REGION="eu-north-1"
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ECR_REPOSITORY="cv-builder-ai-service"
@@ -77,6 +78,18 @@ fi
 
 echo "⏳ Waiting for function to be active..."
 aws lambda wait function-active --function-name ${FUNCTION_NAME} --region ${AWS_REGION}
+
+echo "🔄 Updating worker Lambda (${WORKER_FUNCTION_NAME}) to the same image..."
+WORKER_PACKAGE_TYPE=$(aws lambda get-function --function-name ${WORKER_FUNCTION_NAME} --region ${AWS_REGION} --query 'Configuration.PackageType' --output text 2>/dev/null || echo "None")
+if [ "${WORKER_PACKAGE_TYPE}" = "Image" ]; then
+  aws lambda update-function-code \
+    --function-name ${WORKER_FUNCTION_NAME} \
+    --image-uri ${ECR_URI}:${IMAGE_TAG} \
+    --region ${AWS_REGION} >/dev/null
+  aws lambda wait function-active --function-name ${WORKER_FUNCTION_NAME} --region ${AWS_REGION}
+else
+  echo "⚠️  Worker Lambda ${WORKER_FUNCTION_NAME} is not Image-based. Skipping code update."
+fi
 
 echo "🔐 Ensuring API Gateway can invoke Lambda (API_ID=${API_ID})..."
 aws lambda remove-permission \

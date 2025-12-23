@@ -18,9 +18,38 @@ class JobStatus(str, Enum):
     cancelled = "cancelled"
 
 
+class JobType(str, Enum):
+    extract = "extract"
+    tailor = "tailor"
+    evaluate = "evaluate"
+    rephrase = "rephrase"
+    recommend = "recommend"
+
+
 class ExtractJobCreateRequest(BaseModel):
     cv_text: str = Field(..., min_length=1)
     job_description: str = Field(..., min_length=1)
+
+
+class TailorJobCreateRequest(BaseModel):
+    user_cv_text: str = Field(..., min_length=1)
+    job_description: str = Field(..., min_length=1)
+
+
+class EvaluateJobCreateRequest(BaseModel):
+    job_description: str = Field(..., min_length=1)
+    cv_json: Dict[str, Any] = Field(..., min_length=1)  # type: ignore[arg-type]
+
+
+class RephraseJobCreateRequest(BaseModel):
+    section_content: str = Field(..., min_length=1)
+    section_type: str = Field(..., min_length=1)
+    job_description: str = Field(..., min_length=1)
+
+
+class RecommendJobCreateRequest(BaseModel):
+    job_description: str = Field(..., min_length=1)
+    cv_data: Dict[str, Any] = Field(..., min_length=1)  # type: ignore[arg-type]
 
 
 class JobCreateResponse(BaseModel):
