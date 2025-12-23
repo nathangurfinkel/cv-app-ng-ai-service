@@ -87,22 +87,18 @@ curl http://localhost:8000/health
 
 ### Automated Deployment (Recommended)
 
-Use the provided deployment scripts:
+Use the provided deployment script (container image):
 
 ```bash
-# Deploy with Python 3.13 (recommended)
-./deploy-complete-313-final.sh
-
-# Or deploy with container image
+# Deploy with container image (recommended for large dependency trees)
 ./deploy-container.sh
 ```
 
-These scripts will:
+This script will:
 - Automatically detect your AWS account ID
-- Package the application
-- Create/update Lambda function
-- Configure API Gateway
-- Set up rate limiting
+- Build and push a Linux/amd64 image to ECR
+- Create/update the Lambda function as **packageType=Image**
+- Ensure API Gateway can invoke the Lambda (existing API ID)
 
 ### Manual Deployment
 
@@ -112,17 +108,19 @@ export OPENAI_API_KEY="your-key"
 export PINECONE_API_KEY="your-key"  # optional
 ```
 
-2. **Package the application**:
+2. **Build and push image**:
 ```bash
-pip install -r requirements.txt -t .
-zip -r ai-service.zip .
+docker buildx build --platform linux/amd64 --load -t cv-builder-ai-service:latest .
+docker tag cv-builder-ai-service:latest <account-id>.dkr.ecr.eu-north-1.amazonaws.com/cv-builder-ai-service:latest
+aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin <account-id>.dkr.ecr.eu-north-1.amazonaws.com/cv-builder-ai-service
+docker push <account-id>.dkr.ecr.eu-north-1.amazonaws.com/cv-builder-ai-service:latest
 ```
 
-3. **Deploy to Lambda**:
+3. **Deploy to Lambda (create/update function)**:
 ```bash
 aws lambda update-function-code \
   --function-name cv-builder-ai-service \
-  --zip-file fileb://ai-service.zip \
+  --image-uri <account-id>.dkr.ecr.eu-north-1.amazonaws.com/cv-builder-ai-service:latest \
   --region eu-north-1
 ```
 

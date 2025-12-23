@@ -9,15 +9,23 @@ AWS_REGION="eu-north-1"
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ECR_REPOSITORY="cv-builder-ai-service"
 IMAGE_TAG="latest"
+API_ID="${API_ID:-wz2lhr4qzk}" # existing API Gateway id in this account
 
 echo "📋 AWS Account ID: $AWS_ACCOUNT_ID"
 ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}"
 
-echo "🚀 Starting container-based deployment for RAG stack..."
+echo "🚀 Starting container-based deployment for AI service..."
 
 # Build Docker image
-echo "📦 Building Docker image with multi-stage build..."
-docker build -t ${ECR_REPOSITORY}:${IMAGE_TAG} .
+echo "📦 Building Docker image for linux/amd64 (Lambda)..."
+# NOTE:
+# - On Apple Silicon, use buildx + --load to avoid pushing an OCI image index (manifest list),
+#   which Lambda may reject. We then `docker push` the loaded single-arch image.
+if docker buildx version >/dev/null 2>&1; then
+  docker buildx build --platform linux/amd64 --load -t ${ECR_REPOSITORY}:${IMAGE_TAG} .
+else
+  docker build -t ${ECR_REPOSITORY}:${IMAGE_TAG} .
+fi
 
 # Tag for ECR
 echo "🏷️ Tagging image for ECR..."
@@ -31,110 +39,59 @@ aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS 
 echo "📤 Pushing image to ECR..."
 docker push ${ECR_URI}:${IMAGE_TAG}
 
-# Delete existing function if it exists
-echo "🗑️ Deleting existing Lambda function..."
-if aws lambda get-function --function-name ${FUNCTION_NAME} --region ${AWS_REGION} >/dev/null 2>&1; then
-    aws lambda delete-function --function-name ${FUNCTION_NAME} --region ${AWS_REGION}
-    echo "⏳ Waiting for function deletion..."
-    sleep 10
-fi
+ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/lambda-execution-role"
+echo "🔧 Ensuring Lambda function exists and uses packageType=Image..."
 
-# Create Lambda function
-echo "🚀 Creating new Lambda function with container image..."
-aws lambda create-function \
+PACKAGE_TYPE=$(aws lambda get-function --function-name ${FUNCTION_NAME} --region ${AWS_REGION} --query 'Configuration.PackageType' --output text 2>/dev/null || echo "None")
+
+if [ "${PACKAGE_TYPE}" = "Image" ]; then
+  echo "🔄 Updating existing Image-based Lambda to new image..."
+  aws lambda update-function-code \
     --function-name ${FUNCTION_NAME} \
-    --package-type Image \
-    --code ImageUri=${ECR_URI}:${IMAGE_TAG} \
-    --role arn:aws:iam::${AWS_ACCOUNT_ID}:role/lambda-execution-role \
-    --timeout 30 \
-    --memory-size 1024 \
-    --region ${AWS_REGION} \
-    --environment Variables='{
-        "MOCK_PINECONE": "false",
-        "PINECONE_API_KEY": "'${PINECONE_API_KEY}'",
-        "OPENAI_API_KEY": "'${OPENAI_API_KEY}'",
-        "VERBOSE": "false",
-        "CORS_ORIGINS": "'${CORS_ORIGINS:-https://main.d3q8q8q8q8q8q8.amplifyapp.com}'",
-        "DEBUG": "false"
-    }'
+    --image-uri ${ECR_URI}:${IMAGE_TAG} \
+    --region ${AWS_REGION} >/dev/null
+else
+  echo "🗑️ Deleting existing non-Image Lambda (if any)..."
+  aws lambda delete-function --function-name ${FUNCTION_NAME} --region ${AWS_REGION} 2>/dev/null || true
+  echo "⏳ Waiting for deletion..."
+  sleep 10
+
+  echo "🆕 Creating new Lambda function with container image..."
+  aws lambda create-function \
+      --function-name ${FUNCTION_NAME} \
+      --package-type Image \
+      --code ImageUri=${ECR_URI}:${IMAGE_TAG} \
+      --role ${ROLE_ARN} \
+      --timeout 60 \
+      --memory-size 1024 \
+      --region ${AWS_REGION} \
+      --environment Variables="{
+          \"MOCK_PINECONE\": \"${MOCK_PINECONE:-false}\",
+          \"PINECONE_API_KEY\": \"${PINECONE_API_KEY:-}\",
+          \"OPENAI_API_KEY\": \"${OPENAI_API_KEY:-}\",
+          \"VERBOSE\": \"${VERBOSE:-false}\",
+          \"CORS_ORIGINS\": \"${CORS_ORIGINS:-https://main.d1z0zksl0bfdg3.amplifyapp.com}\",
+          \"DEBUG\": \"${DEBUG:-false}\"
+      }" >/dev/null
+fi
 
 echo "⏳ Waiting for function to be active..."
 aws lambda wait function-active --function-name ${FUNCTION_NAME} --region ${AWS_REGION}
 
-echo "🌐 Creating API Gateway..."
-API_ID=$(aws apigateway create-rest-api \
-    --name ${FUNCTION_NAME}-api \
-    --description "API Gateway for ${FUNCTION_NAME}" \
-    --region ${AWS_REGION} \
-    --query 'id' \
-    --output text)
+echo "🔐 Ensuring API Gateway can invoke Lambda (API_ID=${API_ID})..."
+aws lambda remove-permission \
+  --function-name ${FUNCTION_NAME} \
+  --statement-id apigateway-invoke \
+  --region ${AWS_REGION} 2>/dev/null || true
 
-echo "📋 API Gateway ID: ${API_ID}"
-
-# Get root resource ID
-ROOT_RESOURCE_ID=$(aws apigateway get-resources \
-    --rest-api-id ${API_ID} \
-    --region ${AWS_REGION} \
-    --query 'items[0].id' \
-    --output text)
-
-# Create proxy resource
-PROXY_RESOURCE_ID=$(aws apigateway create-resource \
-    --rest-api-id ${API_ID} \
-    --parent-id ${ROOT_RESOURCE_ID} \
-    --path-part '{proxy+}' \
-    --region ${AWS_REGION} \
-    --query 'id' \
-    --output text)
-
-# Create ANY method
-aws apigateway put-method \
-    --rest-api-id ${API_ID} \
-    --resource-id ${PROXY_RESOURCE_ID} \
-    --http-method ANY \
-    --authorization-type NONE \
-    --region ${AWS_REGION}
-
-# Create integration
-aws apigateway put-integration \
-    --rest-api-id ${API_ID} \
-    --resource-id ${PROXY_RESOURCE_ID} \
-    --http-method ANY \
-    --type AWS_PROXY \
-    --integration-http-method POST \
-    --uri arn:aws:apigateway:${AWS_REGION}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS_REGION}:${AWS_ACCOUNT_ID}:function:${FUNCTION_NAME}/invocations \
-    --region ${AWS_REGION}
-
-# Add permission for API Gateway to invoke Lambda
 aws lambda add-permission \
-    --function-name ${FUNCTION_NAME} \
-    --statement-id apigateway-invoke \
-    --action lambda:InvokeFunction \
-    --principal apigateway.amazonaws.com \
-    --source-arn "arn:aws:execute-api:${AWS_REGION}:${AWS_ACCOUNT_ID}:${API_ID}/*/*" \
-    --region ${AWS_REGION}
-
-# Deploy API
-aws apigateway create-deployment \
-    --rest-api-id ${API_ID} \
-    --stage-name prod \
-    --region ${AWS_REGION}
+  --function-name ${FUNCTION_NAME} \
+  --statement-id apigateway-invoke \
+  --action lambda:InvokeFunction \
+  --principal apigateway.amazonaws.com \
+  --source-arn "arn:aws:execute-api:${AWS_REGION}:${AWS_ACCOUNT_ID}:${API_ID}/*/*" \
+  --region ${AWS_REGION} >/dev/null
 
 echo "🧪 Testing the deployment..."
-# Test the function
-echo '{"test": "health"}' | base64 | aws lambda invoke \
-    --function-name ${FUNCTION_NAME} \
-    --payload fileb:///dev/stdin \
-    --region ${AWS_REGION} \
-    response.json
-
-echo "📋 Response:"
-cat response.json
-
-echo "🌐 API Gateway URL: https://${API_ID}.execute-api.${AWS_REGION}.amazonaws.com/prod"
-echo "📋 Test with: curl https://${API_ID}.execute-api.${AWS_REGION}.amazonaws.com/prod/health"
-
-echo "✅ Container-based deployment completed successfully!"
-echo "📋 Function ARN: arn:aws:lambda:${AWS_REGION}:${AWS_ACCOUNT_ID}:function:${FUNCTION_NAME}"
-echo "📋 ECR Image: ${ECR_URI}:${IMAGE_TAG}"
-echo "📋 API Gateway URL: https://${API_ID}.execute-api.${AWS_REGION}.amazonaws.com/prod"
+echo "✅ Deployed Image: ${ECR_URI}:${IMAGE_TAG}"
+echo "✅ API Gateway URL (existing): https://${API_ID}.execute-api.${AWS_REGION}.amazonaws.com/prod"
