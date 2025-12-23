@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 from .core.config import settings
-from .routes import cv_router, evaluation_router
+from .routes import cv_router, evaluation_router, jobs_router
 from .utils.debug import print_step
 
 def create_app() -> FastAPI:
@@ -37,6 +37,7 @@ def create_app() -> FastAPI:
     # Include routers with /ai prefix
     app.include_router(cv_router, prefix="/ai")
     app.include_router(evaluation_router, prefix="/ai")
+    app.include_router(jobs_router, prefix="/ai")
     
     # Root endpoint
     @app.get("/")

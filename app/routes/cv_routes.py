@@ -6,7 +6,6 @@ import os
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from ..models.request_models import CVRequest, ExtractCVRequest, RephraseRequest, TemplateRecommendationRequest
 from ..services.ai_service import AIService
-from ..services.vectorstore_service import VectorstoreService
 from ..services.evaluation_service import EvaluationService
 from ..services.data_transformation_service import DataTransformationService
 # File processing removed - using cloud-native approach
@@ -17,7 +16,6 @@ router = APIRouter(prefix="/cv", tags=["CV"])
 
 # Initialize services
 ai_service = AIService()
-vectorstore_service = VectorstoreService()
 evaluation_service = EvaluationService(ai_service)
 data_transformation_service = DataTransformationService()
 
@@ -99,50 +97,14 @@ async def tailor_cv(request: CVRequest):
 @router.post("/extract-cv-data")
 async def extract_cv_data(request: ExtractCVRequest):
     """
-    Extract structured CV data from text using AI.
+    Legacy endpoint.
+    This endpoint no longer performs extraction inline (to avoid API Gateway 29s timeout).
+    It now responds with 410 and instructs clients to use the async jobs API instead.
     """
-    print_step("CV Data Extraction Request", {
-        "cv_text_length": len(request.cv_text),
-        "job_description_length": len(request.job_description)
-    }, "input")
-
-    try:
-        # For now, skip vectorstore operations due to Lambda multiprocessing issues
-        print_step("CV Data Extraction", "Skipping vectorstore operations for Lambda compatibility", "info")
-        
-        # Use the original CV text directly as context
-        retrieved_context = request.cv_text
-        
-        print_step("Document Retrieval", {
-            "retrieved_docs_count": 1,  # Using original CV text as single document
-            "retrieved_context_length": len(retrieved_context)
-        }, "output")
-        
-        # Generate structured CV data using AI
-        raw_ai_data = await ai_service.extract_structured_cv_data(request.cv_text, request.job_description)
-        
-        # Transform raw AI data to structured CVData model with enhanced dates
-        cv_data = data_transformation_service.transform_ai_data_to_cv_data(raw_ai_data)
-        
-        # Convert back to dictionary for API response
-        structured_content = data_transformation_service.cv_data_to_dict(cv_data)
-        
-        print_step("CV Data Extraction Complete", {
-            "extracted_keys": list(structured_content.keys()),
-            "name": structured_content.get("personal", {}).get("name", "NOT_FOUND"),
-            "experience_count": len(structured_content.get("experience", [])),
-            "education_count": len(structured_content.get("education", [])),
-            "has_enhanced_dates": any(
-                exp.get("startDateValue") or exp.get("endDateValue") 
-                for exp in structured_content.get("experience", [])
-            )
-        }, "output")
-        
-        return structured_content
-
-    except Exception as e:
-        print_step("CV Data Extraction Error", str(e), "error")
-        raise HTTPException(status_code=500, detail=str(e))
+    raise HTTPException(
+        status_code=410,
+        detail="Deprecated: use POST /ai/jobs/extract and poll GET /ai/jobs/{job_id}",
+    )
 
 @router.post("/rephrase-section")
 async def rephrase_cv_section(request: RephraseRequest):

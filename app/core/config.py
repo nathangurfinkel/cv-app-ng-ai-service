@@ -70,5 +70,10 @@ class Settings:
     CHUNK_OVERLAP: int = 200
     RETRIEVAL_K: int = 7
 
+    # Async Jobs (DynamoDB + SQS)
+    JOBS_TABLE_NAME: str = os.getenv("JOBS_TABLE_NAME", "")
+    JOBS_QUEUE_URL: str = os.getenv("JOBS_QUEUE_URL", "")
+    JOB_TTL_HOURS: int = int(os.getenv("JOB_TTL_HOURS", "24"))
+
 # Global settings instance
 settings = Settings()

@@ -7,24 +7,8 @@ mangum
 # Data Validation
 pydantic
 
-# LangChain Core Components
-langchain
-langchain-core
-langchain-openai
-langchain-pinecone
-
-# AI/ML Libraries
+# AI
 openai
-langsmith
-pinecone
-
-# Essential Dependencies
-numpy
-tiktoken
-regex
-zstandard
-requests-toolbelt
-simsimd
 
 # HTTP and Networking
 httpx
@@ -47,3 +31,6 @@ six
 # Type Support
 typing-extensions
 annotated-types
+
+# AWS SDK (needed for DynamoDB + SQS in async jobs)
+boto3
