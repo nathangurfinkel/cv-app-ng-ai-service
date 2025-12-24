@@ -22,3 +22,4 @@ class SqsJobQueue(JobQueue):
             MessageBody=json.dumps({"job_id": job_id, "job_type": job_type}),
         )
 
+

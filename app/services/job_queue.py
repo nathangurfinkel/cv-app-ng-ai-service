@@ -12,3 +12,4 @@ class JobQueue(ABC):
     def enqueue(self, *, job_id: str, job_type: str) -> None:
         raise NotImplementedError
 
+

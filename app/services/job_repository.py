@@ -41,3 +41,4 @@ class JobRepository(ABC):
     ) -> None:
         raise NotImplementedError
 
+
