@@ -231,6 +231,7 @@ coverage.xml
 # Local development
 local/
 dev/
+localstack-data/
 
 # Installed packages directory
 python/

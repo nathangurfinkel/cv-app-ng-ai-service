@@ -43,8 +43,11 @@ def _to_dynamo_compatible(value: Any) -> Any:
 
 
 class DynamoJobRepository(JobRepository):
-    def __init__(self, table_name: str):
-        self._table = boto3.resource("dynamodb").Table(table_name)
+    def __init__(self, table_name: str, endpoint_url: str | None = None):
+        dynamodb_kwargs = {}
+        if endpoint_url:
+            dynamodb_kwargs["endpoint_url"] = endpoint_url
+        self._table = boto3.resource("dynamodb", **dynamodb_kwargs).Table(table_name)
 
     def create_job(
         self,
@@ -52,16 +55,20 @@ class DynamoJobRepository(JobRepository):
         job_id: str,
         job_type: str,
         status: JobStatus,
-        payload: Dict[str, Any],
         ttl_epoch_seconds: int,
     ) -> None:
+        """
+        Create job metadata only (no payload).
+        Payload is sent via SQS to avoid persisting sensitive data in DynamoDB.
+        
+        Privacy: local-first_vault_c7381a99
+        """
         now = int(time.time())
         self._table.put_item(
             Item={
                 "job_id": job_id,
                 "job_type": job_type,
                 "status": status.value,
-                "payload": _to_dynamo_compatible(payload),
                 "created_at": now,
                 "updated_at": now,
                 "ttl": ttl_epoch_seconds,

@@ -55,6 +55,8 @@ VERBOSE=false
 
 ## Local Development
 
+### Quick Start (without async jobs)
+
 1. **Install dependencies**:
 ```bash
 pip install -r requirements.txt
@@ -72,16 +74,85 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 curl http://localhost:8000/health
 ```
 
+### Local Development with LocalStack (for async jobs)
+
+The async jobs endpoints (`/ai/jobs/extract`, `/ai/jobs/tailor`, etc.) require DynamoDB and SQS. Use LocalStack to run these services locally:
+
+1. **Start LocalStack**:
+```bash
+docker compose -f docker-compose.localstack.yml up -d
+```
+
+2. **Wait for LocalStack to be ready** (about 10-15 seconds):
+```bash
+# Check health
+curl http://localhost:4566/_localstack/health
+```
+
+3. **Set up LocalStack resources** (DynamoDB table and SQS queue):
+```bash
+# Make sure AWS CLI is installed and configured (credentials can be dummy for LocalStack)
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+export AWS_DEFAULT_REGION=us-east-1
+
+# Run setup script
+./scripts/setup-localstack.sh
+```
+
+4. **Update your `.env` file** with the values printed by the setup script:
+```env
+JOBS_TABLE_NAME=cv-builder-jobs
+JOBS_QUEUE_URL=http://localhost:4566/000000000000/cv-builder-jobs-queue
+AWS_ENDPOINT_URL=http://localhost:4566
+AWS_DEFAULT_REGION=us-east-1
+```
+
+5. **Restart your application** to load the new environment variables:
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+6. **Test async jobs endpoint**:
+```bash
+curl -X POST http://localhost:8000/ai/jobs/extract \
+  -H "Content-Type: application/json" \
+  -d '{"cv_text": "Your CV text here..."}'
+```
+
+6. **Start the worker** to process jobs from the SQS queue (in a separate terminal):
+```bash
+# Make sure your .env file has the LocalStack configuration
+python3 scripts/process-localstack-queue.py
+```
+
+This script will continuously poll the SQS queue and process jobs. Keep it running while testing async job endpoints.
+
+**To stop LocalStack**:
+```bash
+docker compose -f docker-compose.localstack.yml down
+```
+
 ## API Endpoints
 
+### Core Endpoints
 - `GET /` - Health check
 - `GET /health` - Health check
+
+### CV Operations
 - `POST /ai/cv/tailor` - Tailor CV from text
 - `POST /ai/cv/tailor-from-file` - Tailor CV from uploaded file
 - `POST /ai/cv/extract-cv-data` - Extract structured CV data
 - `POST /ai/cv/rephrase-section` - Rephrase CV section
 - `POST /ai/cv/recommend-template` - Recommend CV template
+
+### CV Evaluation
 - `POST /ai/evaluation/cv` - Evaluate CV
+
+### Mock Interview (Voice Interviewer)
+- `POST /ai/interview/start` - Start mock interview session
+- `GET /ai/interview/answer` - Stream next question via SSE (Server-Sent Events)
+- `POST /ai/interview/analyze` - Analyze interview transcript (LLM-based feedback)
 
 ## Deployment to AWS Lambda
 

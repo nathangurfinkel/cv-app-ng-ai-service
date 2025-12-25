@@ -1,20 +1,22 @@
 """
 CV evaluation API routes.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from ..models.request_models import EvaluationRequest
 from ..services.evaluation_service import EvaluationService
 from ..services.ai_service import AIService
 from ..utils.debug import print_step
+from ..utils.tier_validation import require_ai_operations, UserTier
 
 router = APIRouter(prefix="/evaluation", tags=["Evaluation"])
 
-# Initialize services
-ai_service = AIService()
-evaluation_service = EvaluationService(ai_service)
+# Services are now instantiated per-request with BYOK support
 
 @router.post("/cv")
-async def evaluate_cv(request: EvaluationRequest):
+async def evaluate_cv(
+    request: EvaluationRequest,
+    tier: UserTier = Depends(require_ai_operations)
+):
     """
     Perform a committee evaluation on a provided CV JSON against a job description.
     """
@@ -28,7 +30,9 @@ async def evaluate_cv(request: EvaluationRequest):
         import json
         cv_content_str = json.dumps(request.cv_json, indent=2)
 
-        # Perform committee evaluation
+        # Perform committee evaluation (uses system OPENAI_API_KEY - sync route)
+        ai_service = AIService(provider="openai", api_key=None)
+        evaluation_service = EvaluationService(ai_service)
         committee_analysis = await evaluation_service.evaluate_cv_with_committee(
             request.job_description,
             cv_content_str

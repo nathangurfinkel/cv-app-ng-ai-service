@@ -14,9 +14,7 @@ from ..utils.debug import print_step
 
 router = APIRouter(prefix="/cv", tags=["CV"])
 
-# Initialize services
-ai_service = AIService()
-evaluation_service = EvaluationService(ai_service)
+# Services are now instantiated per-request with BYOK support
 data_transformation_service = DataTransformationService()
 
 @router.post("/tailor")
@@ -43,11 +41,11 @@ async def tailor_cv(request: CVRequest):
     print_step("Document Retrieval", {
         "retrieved_docs_count": 1,  # Using original CV text as single document
         "retrieved_context_length": len(retrieved_context),
-        "retrieved_context_preview": retrieved_context[:200] + "..." if len(retrieved_context) > 200 else retrieved_context
     }, "output")
     
     try:
-        # Generate structured CV data using AI
+        # Generate structured CV data using AI (uses system OPENAI_API_KEY - sync route)
+        ai_service = AIService(provider="openai", api_key=None)
         raw_ai_data = await ai_service.extract_structured_cv_data(request.user_cv_text, request.job_description)
         
         # Transform raw AI data to structured CVData model with enhanced dates
@@ -71,6 +69,7 @@ async def tailor_cv(request: CVRequest):
         }, "output")
 
         # Perform evaluation (without retrieved_docs for now)
+        evaluation_service = EvaluationService(ai_service)
         evaluation_results = await evaluation_service.evaluate_cv_complete(
             request.job_description,
             json.dumps(structured_content),
@@ -118,7 +117,8 @@ async def rephrase_cv_section(request: RephraseRequest):
     }, "input")
 
     try:
-        # Use AI service to rephrase the section
+        # Use AI service to rephrase the section (uses system OPENAI_API_KEY - sync route)
+        ai_service = AIService(provider="openai", api_key=None)
         rephrased_content = await ai_service.rephrase_cv_section(
             request.section_content,
             request.section_type,
@@ -153,7 +153,8 @@ async def recommend_template(request: TemplateRecommendationRequest):
     }, "input")
 
     try:
-        # Use AI service to recommend template
+        # Use AI service to recommend template (uses system OPENAI_API_KEY - sync route)
+        ai_service = AIService(provider="openai", api_key=None)
         recommendation = await ai_service.recommend_template(
             request.job_description,
             request.cv_data

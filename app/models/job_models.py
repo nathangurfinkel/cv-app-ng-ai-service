@@ -28,7 +28,7 @@ class JobType(str, Enum):
 
 class ExtractJobCreateRequest(BaseModel):
     cv_text: str = Field(..., min_length=1)
-    job_description: str = Field(..., min_length=1)
+    job_description: Optional[str] = Field(default="", min_length=0)
 
 
 class TailorJobCreateRequest(BaseModel):
@@ -58,8 +58,8 @@ class JobCreateResponse(BaseModel):
 
 
 class JobError(BaseModel):
-    code: str
-    message: str
+    code: Optional[str] = None
+    message: Optional[str] = None
 
 
 class JobStatusResponse(BaseModel):

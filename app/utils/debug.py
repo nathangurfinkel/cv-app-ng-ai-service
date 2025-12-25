@@ -18,18 +18,18 @@ def print_step(step_name: str, data: Optional[Any] = None, data_type: str = "inf
         return
         
     print(f"\n{'='*60}")
-    print(f"🔍 STEP: {step_name}")
+    print(f"STEP: {step_name}")
     print(f"{'='*60}")
     
     if data is not None:
         if data_type == "input":
-            print(f"📥 INPUT DATA:")
+            print(f"INPUT DATA:")
         elif data_type == "output":
-            print(f"📤 OUTPUT DATA:")
+            print(f"OUTPUT DATA:")
         elif data_type == "error":
-            print(f"❌ ERROR:")
+            print(f"ERROR:")
         else:
-            print(f"ℹ️  DATA:")
+            print(f"DATA:")
         
         if isinstance(data, (dict, list)):
             print(json.dumps(data, indent=2, default=str))

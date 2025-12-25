@@ -1,45 +1,42 @@
 """
-AI Service for handling OpenAI interactions.
+AI Service for handling LLM interactions with BYOK (Bring Your Own Key) support.
 Follows Single Responsibility Principle - handles only AI-related operations.
 """
-import os
 from typing import List, Dict, Any, Optional
-from openai import OpenAI
+
 from ..core.config import settings
 from ..utils.debug import print_step
+from .llm_factory import create_llm_provider, LLMProvider
 
 
 class AIService:
     """
     Service for handling all AI-related operations including CV generation,
     evaluation, and data transformation.
+    
+    Supports BYOK: provider and api_key can be passed per-request.
     """
     
-    def __init__(self):
-        """Initialize the AI service with OpenAI client."""
-        self._initialize_openai_client()
-        self._initialize_embeddings()
+    def __init__(self, provider: str = "openai", api_key: Optional[str] = None):
+        """
+        Initialize the AI service with a specific LLM provider.
+        
+        Args:
+            provider: LLM provider ('openai' or 'gemini')
+            api_key: Optional API key (if None, uses system OPENAI_API_KEY for OpenAI)
+        """
+        self.provider = provider
+        self.api_key = api_key
+        self._llm_client: Optional[LLMProvider] = None
     
-    def _initialize_openai_client(self):
-        """Initialize OpenAI client."""
-        print_step("OpenAI Client Initialization", {"api_key_present": bool(settings.OPENAI_API_KEY)}, "input")
-        
-        if not settings.OPENAI_API_KEY:
-            raise ValueError("OpenAI API key is required")
-        
-        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        print_step("OpenAI Client Initialization", "OpenAI client initialized successfully", "output")
-    
-    def _initialize_embeddings(self):
-        """Initialize embeddings model."""
-        print_step("Embeddings Initialization", {"api_key_present": bool(settings.OPENAI_API_KEY)}, "input")
-        
-        if not settings.OPENAI_API_KEY:
-            raise ValueError("OpenAI API key is required for embeddings")
-        
-        # Note: In a real implementation, you might want to use a separate embeddings client
-        # For now, we'll use the same client
-        print_step("Embeddings Initialization", "OpenAI embeddings initialized successfully", "output")
+    def _get_llm_client(self) -> LLMProvider:
+        """Lazy-initialize LLM client."""
+        if self._llm_client is None:
+            self._llm_client = create_llm_provider(
+                provider=self.provider,
+                api_key=self.api_key
+            )
+        return self._llm_client
     
     async def generate_cv_from_text(self, job_description: str, user_experience: str) -> str:
         """
@@ -53,7 +50,10 @@ class AIService:
             Generated CV content
         """
         try:
-            prompt = f"""
+            llm = self._get_llm_client()
+            
+            system_prompt = "You are a professional CV writer. Generate tailored CVs based on job descriptions."
+            user_prompt = f"""
             Based on the following job description and user experience, generate a tailored CV:
             
             Job Description:
@@ -65,124 +65,213 @@ class AIService:
             Please generate a professional CV that highlights relevant skills and experience.
             """
             
-            response = self.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "You are a professional CV writer. Generate tailored CVs based on job descriptions."},
-                    {"role": "user", "content": prompt}
-                ],
+            return await llm.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 max_tokens=2000,
                 temperature=0.7
             )
-            
-            return response.choices[0].message.content
             
         except Exception as e:
             print(f"Error generating CV: {e}")
             raise Exception(f"Failed to generate CV: {str(e)}")
     
-    async def extract_structured_cv_data(self, cv_text: str, job_description: str) -> Dict[str, Any]:
+    async def extract_structured_cv_data(self, cv_text: str, job_description: str | None = None) -> Dict[str, Any]:
         """
         Extract structured CV data from text using AI.
         
         Args:
             cv_text: The CV text to extract data from
-            job_description: The job description for context
+            job_description: Optional job description for context and target_job extraction
             
         Returns:
             Structured CV data as a dictionary
         """
         try:
-            prompt = f"""
-            Extract structured data from the following CV text and format it as JSON.
-            The job description is provided for context to help identify relevant information.
+            llm = self._get_llm_client()
+            system_prompt = "You are an expert at extracting structured data from CVs. You also correct grammar, spelling, and punctuation mistakes in the extracted content while preserving the original meaning and professional tone. Always return valid JSON."
             
-            Job Description:
-            {job_description}
+            # Build prompt conditionally based on whether job_description is provided
+            # Check if job_description exists and is not empty after stripping
+            has_job_description = bool(job_description and job_description.strip())
             
-            CV Text:
-            {cv_text}
+            if has_job_description:
+                user_prompt = f"""
+                Extract structured data from the following CV text and format it as JSON.
+                The job description is provided for context to help identify relevant information.
+                
+                IMPORTANT: While extracting, correct any grammar, spelling, and punctuation mistakes in the CV text.
+                Preserve the original meaning and professional tone, but ensure all extracted text fields are grammatically correct.
+                Fix common issues like: subject-verb agreement, verb tense consistency, capitalization, punctuation, and spelling errors.
+                
+                Job Description:
+                {job_description}
+                
+                CV Text:
+                {cv_text}
+                
+                Please extract and return the following information in JSON format:
+                {{
+                    "personal": {{
+                        "name": "Full name",
+                        "email": "email@example.com",
+                        "phone": "phone number",
+                        "location": "city, country",
+                        "website": "website URL or empty string",
+                        "linkedin": "LinkedIn URL or empty string",
+                        "github": "GitHub URL or empty string"
+                    }},
+                    "professional_summary": "Brief professional summary",
+                    "experience": [
+                        {{
+                            "role": "Job title",
+                            "company": "Company name",
+                            "startDate": "Start date (e.g., 'Jan 2023', '2023', 'Present')",
+                            "endDate": "End date (e.g., 'Dec 2023', 'Present', 'Current')",
+                            "location": "Job location",
+                            "description": "Job description",
+                            "achievements": ["achievement 1", "achievement 2"]
+                        }}
+                    ],
+                    "education": [
+                        {{
+                            "degree": "Degree name",
+                            "institution": "Institution name",
+                            "field": "Field of study",
+                            "startDate": "Start date (e.g., 'Sep 2020', '2020')",
+                            "endDate": "End date (e.g., 'May 2023', '2023', 'Present')",
+                            "gpa": "GPA if mentioned or empty string"
+                        }}
+                    ],
+                    "projects": [
+                        {{
+                            "name": "Project name",
+                            "description": "Project description",
+                            "tech_stack": ["technology1", "technology2"],
+                            "link": "Project URL or empty string",
+                            "startDate": "Start date if available or null",
+                            "endDate": "End date if available or null"
+                        }}
+                    ],
+                    "skills": {{
+                        "technical": ["skill1", "skill2"],
+                        "soft": ["skill1", "skill2"],
+                        "languages": ["language1", "language2"]
+                    }},
+                    "licenses_certifications": [
+                        {{
+                            "name": "Certification name",
+                            "issuer": "Issuing organization",
+                            "date": "Issue date (e.g., 'Jan 2023', '2023')",
+                            "expiry": "Expiry date if applicable or null"
+                        }}
+                    ],
+                    "target_job": {{
+                        "title": "Job title from the job description (e.g., 'Senior Software Engineer') or empty string if not found",
+                        "company": "Company name from the job description (e.g., 'Google') or empty string if not found"
+                    }}
+                }}
+                
+                Important: Extract the target job title and company name from the job description provided above. 
+                Look for patterns like "Job Title at Company", "Job Title - Company", "Company - Job Title", etc.
+                If the job description doesn't clearly contain a job title or company name, use empty strings.
+                """
+            else:
+                user_prompt = f"""
+                Extract structured data from the following CV text and format it as JSON.
+                
+                IMPORTANT: While extracting, correct any grammar, spelling, and punctuation mistakes in the CV text.
+                Preserve the original meaning and professional tone, but ensure all extracted text fields are grammatically correct.
+                Fix common issues like: subject-verb agreement, verb tense consistency, capitalization, punctuation, and spelling errors.
+                
+                CV Text:
+                {cv_text}
+                
+                Please extract and return the following information in JSON format:
+                {{
+                    "personal": {{
+                        "name": "Full name",
+                        "email": "email@example.com",
+                        "phone": "phone number",
+                        "location": "city, country",
+                        "website": "website URL or empty string",
+                        "linkedin": "LinkedIn URL or empty string",
+                        "github": "GitHub URL or empty string"
+                    }},
+                    "professional_summary": "Brief professional summary",
+                    "experience": [
+                        {{
+                            "role": "Job title",
+                            "company": "Company name",
+                            "startDate": "Start date (e.g., 'Jan 2023', '2023', 'Present')",
+                            "endDate": "End date (e.g., 'Dec 2023', 'Present', 'Current')",
+                            "location": "Job location",
+                            "description": "Job description",
+                            "achievements": ["achievement 1", "achievement 2"]
+                        }}
+                    ],
+                    "education": [
+                        {{
+                            "degree": "Degree name",
+                            "institution": "Institution name",
+                            "field": "Field of study",
+                            "startDate": "Start date (e.g., 'Sep 2020', '2020')",
+                            "endDate": "End date (e.g., 'May 2023', '2023', 'Present')",
+                            "gpa": "GPA if mentioned or empty string"
+                        }}
+                    ],
+                    "projects": [
+                        {{
+                            "name": "Project name",
+                            "description": "Project description",
+                            "tech_stack": ["technology1", "technology2"],
+                            "link": "Project URL or empty string",
+                            "startDate": "Start date if available or null",
+                            "endDate": "End date if available or null"
+                        }}
+                    ],
+                    "skills": {{
+                        "technical": ["skill1", "skill2"],
+                        "soft": ["skill1", "skill2"],
+                        "languages": ["language1", "language2"]
+                    }},
+                    "licenses_certifications": [
+                        {{
+                            "name": "Certification name",
+                            "issuer": "Issuing organization",
+                            "date": "Issue date (e.g., 'Jan 2023', '2023')",
+                            "expiry": "Expiry date if applicable or null"
+                        }}
+                    ],
+                    "target_job": {{
+                        "title": "",
+                        "company": ""
+                    }}
+                }}
+                """
             
-            Please extract and return the following information in JSON format:
-            {{
-                "personal": {{
-                    "name": "Full name",
-                    "email": "email@example.com",
-                    "phone": "phone number",
-                    "location": "city, country",
-                    "website": "website URL or empty string",
-                    "linkedin": "LinkedIn URL or empty string",
-                    "github": "GitHub URL or empty string"
-                }},
-                "professional_summary": "Brief professional summary",
-                "experience": [
-                    {{
-                        "role": "Job title",
-                        "company": "Company name",
-                        "startDate": "Start date (e.g., 'Jan 2023', '2023', 'Present')",
-                        "endDate": "End date (e.g., 'Dec 2023', 'Present', 'Current')",
-                        "location": "Job location",
-                        "description": "Job description",
-                        "achievements": ["achievement 1", "achievement 2"]
-                    }}
-                ],
-                "education": [
-                    {{
-                        "degree": "Degree name",
-                        "institution": "Institution name",
-                        "field": "Field of study",
-                        "startDate": "Start date (e.g., 'Sep 2020', '2020')",
-                        "endDate": "End date (e.g., 'May 2023', '2023', 'Present')",
-                        "gpa": "GPA if mentioned or empty string"
-                    }}
-                ],
-                "projects": [
-                    {{
-                        "name": "Project name",
-                        "description": "Project description",
-                        "tech_stack": ["technology1", "technology2"],
-                        "link": "Project URL or empty string",
-                        "startDate": "Start date if available or null",
-                        "endDate": "End date if available or null"
-                    }}
-                ],
-                "skills": {{
-                    "technical": ["skill1", "skill2"],
-                    "soft": ["skill1", "skill2"],
-                    "languages": ["language1", "language2"]
-                }},
-                "licenses_certifications": [
-                    {{
-                        "name": "Certification name",
-                        "issuer": "Issuing organization",
-                        "date": "Issue date (e.g., 'Jan 2023', '2023')",
-                        "expiry": "Expiry date if applicable or null"
-                    }}
-                ]
-            }}
-            
-            Important date formatting guidelines:
-            - Use "Present" or "Current" for ongoing positions/education
-            - Use formats like "Jan 2023", "2023", "Sep 2020 - May 2023"
-            - If only year is available, use just the year (e.g., "2023")
-            - If month and year are available, use "Jan 2023" format
+            user_prompt += """
+            Important guidelines:
+            - Grammar correction: All text fields (descriptions, summaries, achievements, etc.) must be grammatically correct with proper spelling and punctuation
+            - Date formatting: Use "Present" or "Current" for ongoing positions/education
+            - Date formats: Use formats like "Jan 2023", "2023", "Sep 2020 - May 2023"
+            - Year-only dates: If only year is available, use just the year (e.g., "2023")
+            - Month-year dates: If month and year are available, use "Jan 2023" format
+            - Preserve meaning: Do not change the factual content, only correct grammar and spelling
             
             Return only the JSON object, no additional text.
             """
             
-            response = self.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "You are an expert at extracting structured data from CVs. Always return valid JSON."},
-                    {"role": "user", "content": prompt}
-                ],
+            content = await llm.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 max_tokens=2000,
                 temperature=0.3
             )
             
             # Parse the JSON response
             import json
-            content = response.choices[0].message.content.strip()
+            content = content.strip()
             
             # Remove any markdown formatting if present
             if content.startswith("```json"):
@@ -208,7 +297,10 @@ class AIService:
             Generated CV content
         """
         try:
-            prompt = f"""
+            llm = self._get_llm_client()
+            
+            system_prompt = "You are a professional CV writer. Improve and tailor existing CVs based on job descriptions."
+            user_prompt = f"""
             Based on the following existing CV content and job description, generate an improved, tailored CV:
             
             Existing CV Content:
@@ -220,17 +312,12 @@ class AIService:
             Please improve and tailor the CV to better match the job requirements.
             """
             
-            response = self.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "You are a professional CV writer. Improve and tailor existing CVs based on job descriptions."},
-                    {"role": "user", "content": prompt}
-                ],
+            return await llm.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 max_tokens=2000,
                 temperature=0.7
             )
-            
-            return response.choices[0].message.content
             
         except Exception as e:
             print(f"Error generating CV from file: {e}")
@@ -248,6 +335,8 @@ class AIService:
             Evaluation results from multiple personas
         """
         try:
+            llm = self._get_llm_client()
+            
             personas = [
                 {
                     "name": "Technical Recruiter",
@@ -266,7 +355,7 @@ class AIService:
             evaluations = {}
             
             for persona in personas:
-                prompt = f"""
+                user_prompt = f"""
                 {persona['prompt']}
                 
                 Job Description:
@@ -282,17 +371,14 @@ class AIService:
                 4. Recommendation (Hire/Maybe/No)
                 """
                 
-                response = self.client.chat.completions.create(
-                    model="gpt-4",
-                    messages=[
-                        {"role": "system", "content": persona['prompt']},
-                        {"role": "user", "content": prompt}
-                    ],
+                response = await llm.chat_completion(
+                    system_prompt=persona['prompt'],
+                    user_prompt=user_prompt,
                     max_tokens=500,
                     temperature=0.7
                 )
                 
-                evaluations[persona['name']] = response.choices[0].message.content
+                evaluations[persona['name']] = response
             
             return evaluations
             
@@ -313,7 +399,10 @@ class AIService:
             Evaluation results from the specific persona
         """
         try:
-            prompt = f"""
+            llm = self._get_llm_client()
+            
+            system_prompt = f"You are {persona}. Provide detailed, professional CV evaluations."
+            user_prompt = f"""
             You are {persona}. Evaluate this CV for the given job description.
             
             Job Description:
@@ -338,17 +427,14 @@ class AIService:
             }}
             """
             
-            response = self.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": f"You are {persona}. Provide detailed, professional CV evaluations."},
-                    {"role": "user", "content": prompt}
-                ],
+            content = await llm.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 max_tokens=500,
                 temperature=0.7
             )
             
-            content = response.choices[0].message.content.strip()
+            content = content.strip()
             
             # Try to parse JSON response
             try:
@@ -387,6 +473,8 @@ class AIService:
             Rephrased section content
         """
         try:
+            llm = self._get_llm_client()
+            
             # Define section-specific prompts
             section_prompts = {
                 'professional_summary': "You are a professional CV writer. Rephrase this professional summary to better align with the target job requirements while maintaining authenticity.",
@@ -399,7 +487,7 @@ class AIService:
             
             base_prompt = section_prompts.get(section_type, "You are a professional CV writer. Rephrase this CV section to better align with the target job requirements.")
             
-            prompt = f"""
+            user_prompt = f"""
             {base_prompt}
             
             Job Description:
@@ -420,17 +508,14 @@ class AIService:
             Return only the rephrased content, no additional text or explanations.
             """
             
-            response = self.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": base_prompt},
-                    {"role": "user", "content": prompt}
-                ],
+            response = await llm.chat_completion(
+                system_prompt=base_prompt,
+                user_prompt=user_prompt,
                 max_tokens=800,
                 temperature=0.7
             )
             
-            return response.choices[0].message.content.strip()
+            return response.strip()
             
         except Exception as e:
             print(f"Error rephrasing CV section: {e}")
@@ -448,6 +533,8 @@ class AIService:
             Template recommendation with explanation
         """
         try:
+            llm = self._get_llm_client()
+            
             # Extract key information from CV data
             experience_count = len(cv_data.get('experience', []))
             has_linear_career = self._analyze_career_progression(cv_data.get('experience', []))
@@ -456,7 +543,8 @@ class AIService:
             skills_strength = len(cv_data.get('skills', {}).get('technical', [])) + len(cv_data.get('skills', {}).get('soft', []))
             projects_count = len(cv_data.get('projects', []))
             
-            prompt = f"""
+            system_prompt = "You are an expert CV consultant with deep knowledge of different CV formats and their optimal use cases. Provide detailed, professional recommendations."
+            user_prompt = f"""
             You are an expert CV consultant. Based on the job description and CV data, recommend the best CV template format.
             
             Job Description:
@@ -497,17 +585,14 @@ class AIService:
             }}
             """
             
-            response = self.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "You are an expert CV consultant with deep knowledge of different CV formats and their optimal use cases. Provide detailed, professional recommendations."},
-                    {"role": "user", "content": prompt}
-                ],
+            content = await llm.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 max_tokens=800,
                 temperature=0.3
             )
             
-            content = response.choices[0].message.content.strip()
+            content = content.strip()
             
             # Parse JSON response
             import json
@@ -586,7 +671,63 @@ class AIService:
                 role_keywords.add('business')
         
         return len(role_keywords) > 1
-
-
-# Global instance
-ai_service = AIService()
+    
+    async def generate_completion(
+        self,
+        prompt: str,
+        max_tokens: int = 2000,
+        temperature: float = 0.7,
+        system_prompt: Optional[str] = None,
+    ) -> str:
+        """
+        Generate a simple text completion from a prompt.
+        
+        Args:
+            prompt: The user prompt
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature (0.0-2.0)
+            system_prompt: Optional system prompt (defaults to generic assistant)
+            
+        Returns:
+            Generated text completion
+        """
+        llm = self._get_llm_client()
+        system = system_prompt or "You are a helpful assistant."
+        
+        return await llm.chat_completion(
+            system_prompt=system,
+            user_prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+    
+    async def stream_completion(
+        self,
+        prompt: str,
+        max_tokens: int = 2000,
+        temperature: float = 0.7,
+        system_prompt: Optional[str] = None,
+    ):
+        """
+        Stream a text completion from a prompt (yields chunks).
+        
+        Args:
+            prompt: The user prompt
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature (0.0-2.0)
+            system_prompt: Optional system prompt (defaults to generic assistant)
+            
+        Yields:
+            Text chunks as they are generated
+        """
+        llm = self._get_llm_client()
+        system = system_prompt or "You are a helpful assistant."
+        
+        # Use streaming method from LLM provider
+        async for chunk in llm.stream_chat_completion(
+            system_prompt=system,
+            user_prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        ):
+            yield chunk

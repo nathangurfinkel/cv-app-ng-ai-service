@@ -1,11 +1,11 @@
 """
-SQS worker Lambda handler for async jobs.
+SQS worker Lambda handler for async jobs with BYOK support.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .core.config import settings
 from .models.job_models import JobStatus, JobType
@@ -16,9 +16,7 @@ from .services.evaluation_service import EvaluationService
 from .utils.security import validate_cv_text, validate_job_description
 
 
-_ai_service: AIService | None = None
 _transformer: DataTransformationService | None = None
-_evaluation: EvaluationService | None = None
 _repo: DynamoJobRepository | None = None
 
 
@@ -27,15 +25,9 @@ def _get_repo() -> DynamoJobRepository:
     if _repo is None:
         if not settings.JOBS_TABLE_NAME:
             raise RuntimeError("JOBS_TABLE_NAME is not configured")
-        _repo = DynamoJobRepository(settings.JOBS_TABLE_NAME)
+        endpoint_url = settings.AWS_ENDPOINT_URL if settings.AWS_ENDPOINT_URL else None
+        _repo = DynamoJobRepository(settings.JOBS_TABLE_NAME, endpoint_url=endpoint_url)
     return _repo
-
-
-def _get_ai() -> AIService:
-    global _ai_service
-    if _ai_service is None:
-        _ai_service = AIService()
-    return _ai_service
 
 
 def _get_transformer() -> DataTransformationService:
@@ -45,11 +37,43 @@ def _get_transformer() -> DataTransformationService:
     return _transformer
 
 
-def _get_evaluation(ai: AIService) -> EvaluationService:
-    global _evaluation
-    if _evaluation is None:
-        _evaluation = EvaluationService(ai)
-    return _evaluation
+def _create_ai_service(
+    user_provider: Optional[str],
+    user_api_key: Optional[str],
+    user_tier: Optional[str],
+) -> AIService:
+    """
+    Create AIService with BYOK support. Only uses system OpenAI key for verified MANAGED tier.
+    
+    Args:
+        user_provider: User's AI provider (openai or gemini)
+        user_api_key: User's API key
+        user_tier: Verified user tier (from server-side validation)
+        
+    Returns:
+        AIService instance
+        
+    Raises:
+        ValueError: If configuration is invalid
+    """
+    # BYOK path: user provided both provider and key
+    if user_provider and user_api_key:
+        return AIService(provider=user_provider, api_key=user_api_key)
+    
+    # MANAGED tier: use system OpenAI key (only if tier is verified MANAGED)
+    if user_tier == "managed_subscription":
+        if not settings.OPENAI_API_KEY:
+            raise ValueError(
+                "System OPENAI_API_KEY is not configured for Managed tier. "
+                "Please configure OPENAI_API_KEY environment variable."
+            )
+        return AIService(provider="openai", api_key=None)  # Will use settings.OPENAI_API_KEY
+    
+    # No user key and not MANAGED tier: require BYOK
+    raise ValueError(
+        "BYOK required: X-User-Provider and X-User-Api-Key headers are required "
+        "for this tier. Managed tier subscriptions must be verified server-side."
+    )
 
 
 def _run_async(coro: Any) -> Any:
@@ -60,12 +84,10 @@ def _run_async(coro: Any) -> Any:
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Lambda SQS handler.
+    Lambda SQS handler with BYOK support.
     """
     repo = _get_repo()
-    ai = _get_ai()
     transformer = _get_transformer()
-    evaluation = _get_evaluation(ai)
 
     records = event.get("Records", []) or []
     processed = 0
@@ -76,6 +98,16 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         msg = json.loads(body)
         job_id = msg.get("job_id")
         job_type = msg.get("job_type")
+        
+        # Extract BYOK and tier from SQS message (set by routes via JobsService -> SqsJobQueue)
+        user_provider = msg.get("user_provider")
+        user_api_key = msg.get("user_api_key")
+        user_tier = msg.get("user_tier")
+        
+        # Extract payload from SQS message (NOT from DynamoDB)
+        # Privacy: payload is ephemeral (only in SQS, not persisted in DB)
+        # Plan: local-first_vault_c7381a99
+        payload = msg.get("payload") or {}
 
         if not job_id:
             continue
@@ -88,13 +120,18 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             continue
 
         try:
+            # Create AI service with BYOK or system key (only for verified MANAGED tier)
+            ai = _create_ai_service(user_provider, user_api_key, user_tier)
+            evaluation = EvaluationService(ai)
+            
             repo.update_status(job_id=job_id, status=JobStatus.processing)
-            payload = item.get("payload") or {}
 
             if job_type == JobType.extract.value:
                 cv_text = payload.get("cv_text", "")
                 job_description = payload.get("job_description", "")
-                raw_ai_data = _run_async(ai.extract_structured_cv_data(cv_text, job_description))  # type: ignore[call-arg]
+                # Pass None if job_description is empty string
+                job_description_or_none = job_description if job_description and job_description.strip() else None
+                raw_ai_data = _run_async(ai.extract_structured_cv_data(cv_text, job_description_or_none))  # type: ignore[call-arg]
                 cv_data = transformer.transform_ai_data_to_cv_data(raw_ai_data)
                 structured_content = transformer.cv_data_to_dict(cv_data)
                 repo.update_status(job_id=job_id, status=JobStatus.succeeded, result=structured_content)
@@ -144,7 +181,16 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     error_message=f"Unsupported job_type: {job_type}",
                 )
 
+        except ValueError as e:
+            # Configuration errors (missing keys, invalid provider)
+            repo.update_status(
+                job_id=job_id,
+                status=JobStatus.failed,
+                error_code="configuration_error",
+                error_message=str(e),
+            )
         except Exception as e:
+            # General worker errors
             repo.update_status(
                 job_id=job_id,
                 status=JobStatus.failed,

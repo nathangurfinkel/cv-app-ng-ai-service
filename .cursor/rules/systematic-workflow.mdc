@@ -1,0 +1,32 @@
+---
+description: Systematic workflow for high-quality changes (plan → implement → verify) with SOLID guardrails.
+globs: "**/*"
+alwaysApply: true
+---
+# Systematic workflow (SOLID + quality bar)
+
+## Before changing code
+
+- **Clarify the goal**: restate what “done” means and what must NOT change (API contracts, job semantics, infra env vars).
+- **Plan with SOLID in mind**:
+  - Single Responsibility: routes orchestrate; services do work; repositories/queues are infrastructure.
+  - Dependency Inversion: depend on interfaces (`JobRepository`, `JobQueue`) not concrete AWS clients.
+- **Search first**: extend existing patterns (routes → service → repo/queue) before adding new architecture.
+- **Cross-repo awareness**: if you change an API contract, update `cv-app-ng-frontend` (consumer) in the same plan.
+
+## While implementing
+
+- **Keep boundaries clean**:
+  - `app/routes/*`: request/response models + orchestration only.
+  - `app/services/*`: business logic and workflow coordination.
+  - `app/models/*`: Pydantic schemas and enums.
+  - `app/utils/*`: sanitization, parsing helpers (pure where possible).
+- **Protect privacy**: never log raw CV/job text; log lengths/ids only.
+- **Avoid new dependencies** unless they’re necessary for correctness/security.
+
+## Done criteria
+
+- **Inputs validated** (length limits, required fields, sanitization).
+- **Errors are structured** (do not leak internals to clients).
+- **Docs/env examples updated** when config/contracts change.
+

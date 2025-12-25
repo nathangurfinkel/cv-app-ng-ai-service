@@ -46,6 +46,7 @@ class Settings:
     
     # AWS Configuration
     AWS_REGION: str = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+    AWS_ENDPOINT_URL: str = os.getenv("AWS_ENDPOINT_URL", "")  # For LocalStack: http://localhost:4566
     S3_BUCKET_NAME: str = os.getenv("S3_BUCKET", "")
     
     # Lambda Configuration
@@ -74,6 +75,10 @@ class Settings:
     JOBS_TABLE_NAME: str = os.getenv("JOBS_TABLE_NAME", "")
     JOBS_QUEUE_URL: str = os.getenv("JOBS_QUEUE_URL", "")
     JOB_TTL_HOURS: int = int(os.getenv("JOB_TTL_HOURS", "24"))
+    
+    # LemonSqueezy Licensing
+    LEMONSQUEEZY_WEBHOOK_SECRET: str = os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET", "")
+    LICENSE_SUBSCRIPTIONS_TABLE_NAME: str = os.getenv("LICENSE_SUBSCRIPTIONS_TABLE_NAME", "")
 
 # Global settings instance
 settings = Settings()

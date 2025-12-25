@@ -2,7 +2,7 @@
 Request models for API endpoints.
 """
 from pydantic import BaseModel
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 class CVRequest(BaseModel):
     """CV tailoring request model."""
@@ -21,7 +21,7 @@ class EvaluationRequest(BaseModel):
 class ExtractCVRequest(BaseModel):
     """CV extraction request model."""
     cv_text: str
-    job_description: str
+    job_description: Optional[str] = ""
 
 class RephraseRequest(BaseModel):
     """CV section rephrase request model."""

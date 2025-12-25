@@ -1,0 +1,53 @@
+---
+description: AI Service architecture + API contracts (async jobs) to keep changes consistent with frontend consumers.
+globs: "**/*"
+alwaysApply: true
+---
+# AI Service: architecture & API contract rules
+
+## What this service is
+
+- **Role**: AI-backed CV operations (extract, tailor, evaluate, rephrase, recommend).
+- **Runtime**: FastAPI + Mangum on **AWS Lambda**.
+- **Primary UX pattern**: **async jobs** (enqueue → poll status → return result).
+
+## Router + layering conventions (SRP/DIP)
+
+- **Routers** live in `app/routes/*` and are included with `/ai` prefix in `app/main.py`.
+- **Routes should not**:
+  - call AWS clients directly
+  - embed prompt logic
+  - do heavy computation synchronously
+- **Services** live in `app/services/*` and coordinate work.
+- **Infrastructure** lives behind interfaces:
+  - repositories (e.g., Dynamo) in `app/services/*repository*.py`
+  - queues (e.g., SQS) in `app/services/*queue*.py`
+
+## Stable async-jobs API contract (frontend depends on this)
+
+The frontend uses `cv-app-ng-frontend/src/services/api.ts` and expects:
+
+- **POST** `/ai/jobs/extract|tailor|evaluate|rephrase|recommend`
+  - responds `202` with `{ job_id, status }`
+- **GET** `/ai/jobs/{job_id}`
+  - responds with `{ job_id, status, result?, error? }`
+
+If you change shapes/status values/paths, update the frontend consumer in the same plan.
+
+## Input validation + safety
+
+- Use `app/utils/security.py` to validate/sanitize:
+  - `validate_cv_text`
+  - `validate_job_description`
+- Enforce strict max sizes; reject empty/too-short inputs early.
+- Never log raw CV text/job descriptions or user-supplied API keys.
+
+## When adding new capabilities
+
+- Prefer adding a **new job type** over a synchronous endpoint.
+- Add:
+  - Pydantic request/response models in `app/models/*`
+  - route handler in `app/routes/*`
+  - service method in `app/services/*`
+  - worker support if needed (`app/worker.py` / job processors)
+

@@ -6,6 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 from .core.config import settings
 from .routes import cv_router, evaluation_router, jobs_router
+from .routes.webhooks_routes import router as webhooks_router
+from .routes.roast_routes import router as roast_router
+from .routes.interview_routes import router as interview_router
 from .utils.debug import print_step
 
 def create_app() -> FastAPI:
@@ -30,7 +33,16 @@ def create_app() -> FastAPI:
         allow_origins=settings.ALL_CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization"],
+        # Frontend sends these headers (API auth + BYOK). Must be explicitly allowlisted for CORS preflight.
+        allow_headers=[
+            "Content-Type",
+            "Authorization",
+            "X-API-Key",
+            "X-User-Provider",
+            "X-User-Api-Key",
+            "X-User-Tier",
+            "X-License-Key",
+        ],
     )
     print_step("FastAPI App Initialization", "FastAPI app and CORS middleware configured", "output")
     
@@ -38,6 +50,9 @@ def create_app() -> FastAPI:
     app.include_router(cv_router, prefix="/ai")
     app.include_router(evaluation_router, prefix="/ai")
     app.include_router(jobs_router, prefix="/ai")
+    app.include_router(webhooks_router, prefix="/ai")
+    app.include_router(roast_router, prefix="/ai")
+    app.include_router(interview_router, prefix="/ai")
     
     # Root endpoint
     @app.get("/")
@@ -60,9 +75,9 @@ handler = Mangum(app)
 # Application startup message
 print_step("Application Startup", "CV Builder AI Service is ready to serve requests!", "output")
 print("\n" + "="*80)
-print("🚀 CV BUILDER AI SERVICE STARTED SUCCESSFULLY")
+print("CV BUILDER AI SERVICE STARTED SUCCESSFULLY")
 print("="*80)
-print("📋 Available Endpoints:")
+print("Available Endpoints:")
 print("   • GET  /                    - Health check")
 print("   • GET  /health              - Health check")
 print("   • POST /ai/extract-cv-data  - Extract data from CV files")
@@ -72,5 +87,5 @@ print("   • POST /ai/evaluate-cv      - Perform committee evaluation on a gene
 print("   • POST /ai/rephrase-section - Rephrase CV sections")
 print("   • POST /ai/get-template-recommendation - Get template recommendations")
 print("="*80)
-print("🔧 Debug Mode: ENABLED - Detailed logging will be shown for each request")
+print("Debug Mode: ENABLED - Detailed logging will be shown for each request")
 print("="*80 + "\n")

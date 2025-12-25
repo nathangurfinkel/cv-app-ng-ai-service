@@ -1,0 +1,212 @@
+---
+alwaysApply: true
+---
+
+# Plan Execution Workflow (All Repos)
+
+## Purpose
+
+This rule explains **how to use** the `.cursor/plans/*.plan.md` files to implement features systematically. Follow this workflow when executing any plan.
+
+## Before Starting Implementation
+
+### 1. Read the Plan Hierarchy (Top-Down)
+
+When implementing a feature, always read in this order:
+
+1. **`00_master_roadmap.plan.md`** (5 min)
+   - Check "Current System State" → understand what exists today
+   - Check "Feature Dependency Graph" → understand prerequisites
+   - Check "Cross-Repo Touch Points" → understand API contracts
+
+2. **Implementation basis doc** (10 min)
+   - Read `cv-app-ng-frontend/docs/implementation-plan/XX-*.md` linked in the plan
+   - Understand the WHY and design principles
+
+3. **Execution plan** (15 min)
+   - Read the `.cursor/plans/XX_*.plan.md` for your feature
+   - Review the `todos` section → these are your work items
+   - Check `Related Plans` section → read dependencies if you haven't already
+
+### 2. Check Dependencies
+
+Before implementing `Plan X`:
+- Check the plan's YAML frontmatter `todos` → look for `dependencies: [...]`
+- If dependencies exist, verify they're implemented (check their todos status)
+- If dependency is incomplete, **implement dependency first** or ask user to prioritize
+
+Example:
+```yaml
+todos:
+  - id: implement-license-activation-ui
+    status: pending
+    dependencies:
+      - add-lemonsqueezy-sdk-frontend  # ← Must be done first
+```
+
+## During Implementation
+
+### 1. Work Todo-by-Todo
+
+- Implement **one todo at a time** (don't skip ahead)
+- Mark todo as `in_progress` when you start
+- Mark todo as `completed` when done (and passing tests/lints)
+- If a todo is blocked, mark as `pending` and explain why
+
+**How to Update Todos** (use plan file format, not workspace todos):
+
+The plan file has structured todos in YAML frontmatter. When you complete work:
+
+1. If the plan is already created (file exists), **mentally track** that the todo is done
+2. If user asks for status, read the plan file and report which todos are done
+3. **Do NOT** modify the plan file unless user explicitly asks you to update it
+
+### 2. Follow SOLID Boundaries
+
+Every plan defines "SOLID-aligned module boundaries." Respect them:
+
+```
+✅ DO: Create small, single-purpose modules
+✅ DO: Depend on interfaces, not concrete implementations
+✅ DO: Keep UI, state, services, and utils separated
+
+❌ DON'T: Mix business logic into UI components
+❌ DON'T: Call AWS clients directly from routes
+❌ DON'T: Embed prompts or magic strings in multiple places
+```
+
+### 3. Touch the Right Files
+
+Each plan lists **Implementation Checklist** and **file touchpoints**. Use them:
+
+- If the plan says "Add X to `src/services/api.ts`", modify that file
+- If the plan says "Create new file `src/contexts/TierContext.tsx`", create it
+- **Don't create files not mentioned in the plan** unless you have a good reason
+
+### 4. Respect API Contracts (Multi-Repo)
+
+If your change touches an API contract:
+
+1. Check `00_master_roadmap.plan.md` → "Cross-Repo Touch Points"
+2. If frontend calls AI service, **update both repos**
+3. If you can't update both repos (wrong workspace), **warn the user**
+
+Example:
+```
+⚠️ WARNING: This change modifies /ai/jobs/{job_id} response shape.
+You must also update cv-app-ng-frontend/src/services/api.ts to match.
+```
+
+## After Implementation
+
+### 1. Run Quality Checks
+
+Before marking a todo as `completed`:
+
+```bash
+# Frontend
+npm run build    # Typecheck + build
+npm run lint     # ESLint
+
+# AI Service / PDF Generator (Python)
+python -m pytest                  # Run tests (if they exist)
+ruff check app/                   # Lint (if ruff is installed)
+```
+
+If checks fail, **fix issues before moving to next todo**.
+
+### 2. Test the Happy Path
+
+For each todo, test the **happy path**:
+- If it's a UI component → open the page and verify it renders
+- If it's an API endpoint → test with `curl` or Postman
+- If it's a background job → trigger it and check logs
+
+### 3. Check for PII Leaks (Security)
+
+If your code handles sensitive data (CV text, job descriptions, API keys):
+
+```bash
+# Audit logs for PII
+grep -r "logger.*cv_text" app/       # Should return NOTHING
+grep -r "logger.*job_description" app/  # Should return NOTHING
+grep -r "logger.*api_key" app/       # Should return NOTHING
+```
+
+If you find PII in logs, **use safe logging** (see `32_security_data_sovereignty.plan.md`).
+
+## Common Mistakes to Avoid
+
+### ❌ Mistake 1: Skipping Plan Reading
+
+**Bad**: User says "implement voice interviewer", you immediately start coding
+
+**Good**: Read `22_voice_mock_interviewer.plan.md` → read `05-real-time-ai-interviewer.md` → understand architecture → implement
+
+### ❌ Mistake 2: Implementing Out of Order
+
+**Bad**: Implement `22_voice_mock_interviewer` before `local-first_vault_c7381a99` is done (interview transcripts need vault storage)
+
+**Good**: Check dependency graph → implement vault first
+
+### ❌ Mistake 3: Creating Files Not in Plan
+
+**Bad**: Plan says "add TierContext", you create `src/contexts/TierContext.tsx` + `src/contexts/TierProvider.tsx` + `src/hooks/useTier.ts`
+
+**Good**: Plan says "add TierContext", you create exactly `src/contexts/TierContext.tsx` (which includes provider and hook in one file)
+
+### ❌ Mistake 4: Ignoring Cross-Repo Dependencies
+
+**Bad**: Change AI service `/ai/jobs/{job_id}` response shape without updating frontend
+
+**Good**: Change backend + frontend in same session (or warn user)
+
+### ❌ Mistake 5: Logging PII
+
+**Bad**: 
+```python
+logger.info(f"Processing CV: {cv_text}")
+```
+
+**Good**:
+```python
+logger.info(f"Processing CV (length: {len(cv_text)} chars)")
+```
+
+## When Plans Conflict with Reality
+
+If you discover the plan is wrong or outdated:
+
+1. **STOP** and tell the user
+2. Explain what's wrong (e.g., "Plan assumes X exists, but it doesn't")
+3. Suggest a fix (e.g., "Should we update the plan, or implement X first?")
+4. **Wait for user decision** before proceeding
+
+Example:
+```
+⚠️ Plan `11_licensing_and_gating_lemonsqueezy.plan.md` assumes Dexie vault exists
+(to store encrypted license cache), but vault is not implemented yet.
+
+Options:
+A) Implement vault first (plan `local-first_vault_c7381a99`)
+B) Use localStorage for license cache (MVP workaround)
+
+Which do you prefer?
+```
+
+## Summary Checklist (Before Claiming "Done")
+
+- [ ] Read plan + implementation basis doc
+- [ ] Checked dependencies (all completed or N/A)
+- [ ] Implemented todos in order
+- [ ] Followed SOLID boundaries
+- [ ] Touched only files mentioned in plan (or justified new ones)
+- [ ] Tested happy path
+- [ ] Ran lint/typecheck (passed)
+- [ ] No PII in logs
+- [ ] API contracts updated in both repos (if applicable)
+- [ ] Plan todos marked as completed (if user asks for status)
+
+---
+
+**TL;DR**: Always read the plan before coding. Implement todos in order. Respect SOLID boundaries. Check for PII leaks. Update both repos if changing API contracts.

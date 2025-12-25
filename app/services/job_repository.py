@@ -20,9 +20,12 @@ class JobRepository(ABC):
         job_id: str,
         job_type: str,
         status: JobStatus,
-        payload: Dict[str, Any],
         ttl_epoch_seconds: int,
     ) -> None:
+        """
+        Create a job record (metadata only, no payload).
+        Payload is sent via JobQueue to avoid storing sensitive data in DB.
+        """
         raise NotImplementedError
 
     @abstractmethod

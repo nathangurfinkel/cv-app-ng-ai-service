@@ -12,13 +12,13 @@ ECR_REPOSITORY="cv-builder-ai-service"
 IMAGE_TAG="latest"
 API_ID="${API_ID:-wz2lhr4qzk}" # existing API Gateway id in this account
 
-echo "📋 AWS Account ID: $AWS_ACCOUNT_ID"
+echo "AWS Account ID: $AWS_ACCOUNT_ID"
 ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}"
 
-echo "🚀 Starting container-based deployment for AI service..."
+echo "Starting container-based deployment for AI service..."
 
 # Build Docker image
-echo "📦 Building Docker image for linux/amd64 (Lambda)..."
+echo "Building Docker image for linux/amd64 (Lambda)..."
 # NOTE:
 # - On Apple Silicon, use buildx + --load to avoid pushing an OCI image index (manifest list),
 #   which Lambda may reject. We then `docker push` the loaded single-arch image.
@@ -29,35 +29,35 @@ else
 fi
 
 # Tag for ECR
-echo "🏷️ Tagging image for ECR..."
+echo "Tagging image for ECR..."
 docker tag ${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_URI}:${IMAGE_TAG}
 
 # Login to ECR
-echo "🔐 Logging in to ECR..."
+echo "Logging in to ECR..."
 aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_URI}
 
 # Push to ECR
-echo "📤 Pushing image to ECR..."
+echo "Pushing image to ECR..."
 docker push ${ECR_URI}:${IMAGE_TAG}
 
 ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/lambda-execution-role"
-echo "🔧 Ensuring Lambda function exists and uses packageType=Image..."
+echo "Ensuring Lambda function exists and uses packageType=Image..."
 
 PACKAGE_TYPE=$(aws lambda get-function --function-name ${FUNCTION_NAME} --region ${AWS_REGION} --query 'Configuration.PackageType' --output text 2>/dev/null || echo "None")
 
 if [ "${PACKAGE_TYPE}" = "Image" ]; then
-  echo "🔄 Updating existing Image-based Lambda to new image..."
+  echo "Updating existing Image-based Lambda to new image..."
   aws lambda update-function-code \
     --function-name ${FUNCTION_NAME} \
     --image-uri ${ECR_URI}:${IMAGE_TAG} \
     --region ${AWS_REGION} >/dev/null
 else
-  echo "🗑️ Deleting existing non-Image Lambda (if any)..."
+  echo "Deleting existing non-Image Lambda (if any)..."
   aws lambda delete-function --function-name ${FUNCTION_NAME} --region ${AWS_REGION} 2>/dev/null || true
-  echo "⏳ Waiting for deletion..."
+  echo "Waiting for deletion..."
   sleep 10
 
-  echo "🆕 Creating new Lambda function with container image..."
+  echo "Creating new Lambda function with container image..."
   aws lambda create-function \
       --function-name ${FUNCTION_NAME} \
       --package-type Image \
@@ -76,10 +76,10 @@ else
       }" >/dev/null
 fi
 
-echo "⏳ Waiting for function to be active..."
+echo "Waiting for function to be active..."
 aws lambda wait function-active --function-name ${FUNCTION_NAME} --region ${AWS_REGION}
 
-echo "🔄 Updating worker Lambda (${WORKER_FUNCTION_NAME}) to the same image..."
+echo "Updating worker Lambda (${WORKER_FUNCTION_NAME}) to the same image..."
 WORKER_PACKAGE_TYPE=$(aws lambda get-function --function-name ${WORKER_FUNCTION_NAME} --region ${AWS_REGION} --query 'Configuration.PackageType' --output text 2>/dev/null || echo "None")
 if [ "${WORKER_PACKAGE_TYPE}" = "Image" ]; then
   aws lambda update-function-code \
@@ -88,10 +88,10 @@ if [ "${WORKER_PACKAGE_TYPE}" = "Image" ]; then
     --region ${AWS_REGION} >/dev/null
   aws lambda wait function-active --function-name ${WORKER_FUNCTION_NAME} --region ${AWS_REGION}
 else
-  echo "⚠️  Worker Lambda ${WORKER_FUNCTION_NAME} is not Image-based. Skipping code update."
+  echo "WARNING: Worker Lambda ${WORKER_FUNCTION_NAME} is not Image-based. Skipping code update."
 fi
 
-echo "🔐 Ensuring API Gateway can invoke Lambda (API_ID=${API_ID})..."
+echo "Ensuring API Gateway can invoke Lambda (API_ID=${API_ID})..."
 aws lambda remove-permission \
   --function-name ${FUNCTION_NAME} \
   --statement-id apigateway-invoke \
@@ -105,6 +105,6 @@ aws lambda add-permission \
   --source-arn "arn:aws:execute-api:${AWS_REGION}:${AWS_ACCOUNT_ID}:${API_ID}/*/*" \
   --region ${AWS_REGION} >/dev/null
 
-echo "🧪 Testing the deployment..."
-echo "✅ Deployed Image: ${ECR_URI}:${IMAGE_TAG}"
-echo "✅ API Gateway URL (existing): https://${API_ID}.execute-api.${AWS_REGION}.amazonaws.com/prod"
+echo "Testing the deployment..."
+echo "Deployed Image: ${ECR_URI}:${IMAGE_TAG}"
+echo "API Gateway URL (existing): https://${API_ID}.execute-api.${AWS_REGION}.amazonaws.com/prod"

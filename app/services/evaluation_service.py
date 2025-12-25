@@ -7,31 +7,46 @@ from typing import Dict, Any, List
 from ..core.config import settings
 from ..utils.debug import print_step
 
-# Conditional imports for ragas
-try:
-    from ragas import evaluate
-    from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
-    from datasets import Dataset
-    RAGAS_AVAILABLE = True
-    print("INFO: Ragas evaluation framework loaded successfully.")
-except ImportError as e:
-    print(f"WARNING: Ragas not available: {e}")
-    RAGAS_AVAILABLE = False
-    # Create dummy functions to prevent errors
-    def evaluate(*args, **kwargs):
-        return None
-    def faithfulness(*args, **kwargs):
-        return None
-    def answer_relevancy(*args, **kwargs):
-        return None
-    def context_precision(*args, **kwargs):
-        return None
-    def context_recall(*args, **kwargs):
-        return None
-    class Dataset:
-        @staticmethod
-        def from_dict(data):
+# Lazy import for ragas to avoid uvloop conflict
+RAGAS_AVAILABLE = None
+_ragas_imported = False
+
+def _lazy_import_ragas():
+    """Lazy import ragas only when needed to avoid uvloop conflict."""
+    global RAGAS_AVAILABLE, _ragas_imported, evaluate, faithfulness, answer_relevancy, context_precision, context_recall, Dataset
+    
+    if _ragas_imported:
+        return RAGAS_AVAILABLE
+    
+    try:
+        from ragas import evaluate
+        from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
+        from datasets import Dataset
+        RAGAS_AVAILABLE = True
+        _ragas_imported = True
+        print("INFO: Ragas evaluation framework loaded successfully.")
+        return True
+    except (ImportError, ValueError) as e:
+        # ValueError can occur if nest_asyncio can't patch uvloop
+        print(f"WARNING: Ragas not available: {e}")
+        RAGAS_AVAILABLE = False
+        _ragas_imported = True
+        # Create dummy functions to prevent errors
+        def evaluate(*args, **kwargs):
             return None
+        def faithfulness(*args, **kwargs):
+            return None
+        def answer_relevancy(*args, **kwargs):
+            return None
+        def context_precision(*args, **kwargs):
+            return None
+        def context_recall(*args, **kwargs):
+            return None
+        class Dataset:
+            @staticmethod
+            def from_dict(data):
+                return None
+        return False
 
 class EvaluationService:
     """Service for CV evaluation operations."""
@@ -57,11 +72,14 @@ class EvaluationService:
         Returns:
             RAGAS evaluation scores
         """
+        # Lazy import ragas to avoid uvloop conflict
+        ragas_available = _lazy_import_ragas()
+        
         print_step("RAGAS Evaluation Setup", {
-            "ragas_available": RAGAS_AVAILABLE
+            "ragas_available": ragas_available
         }, "input")
         
-        if not RAGAS_AVAILABLE:
+        if not ragas_available:
             print_step("RAGAS Evaluation", 
                       "RAGAS not available, using default scores", "info")
             return {
@@ -89,6 +107,10 @@ class EvaluationService:
                     "context_recall": 0.0
                 }
             
+            # Ensure ragas is imported
+            _lazy_import_ragas()
+            from datasets import Dataset
+            
             # Create a proper reference answer for context_precision metric
             reference_answer = f"Based on the job description: {job_description}, the CV should highlight relevant skills and experience."
             
@@ -103,6 +125,10 @@ class EvaluationService:
             print_step("RAGAS Evaluation Execution", {
                 "metrics": ["faithfulness", "answer_relevancy", "context_precision", "context_recall"]
             }, "input")
+            
+            # Import ragas functions inside the method to avoid uvloop conflict
+            from ragas import evaluate
+            from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
             
             ragas_result = await asyncio.to_thread(
                 evaluate, 
