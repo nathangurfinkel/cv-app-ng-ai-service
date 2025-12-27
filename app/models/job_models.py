@@ -24,6 +24,8 @@ class JobType(str, Enum):
     evaluate = "evaluate"
     rephrase = "rephrase"
     recommend = "recommend"
+    inject_keyword = "inject_keyword"
+    elaborate = "elaborate"
 
 
 class ExtractJobCreateRequest(BaseModel):
@@ -50,6 +52,21 @@ class RephraseJobCreateRequest(BaseModel):
 class RecommendJobCreateRequest(BaseModel):
     job_description: str = Field(..., min_length=1)
     cv_data: Dict[str, Any] = Field(..., min_length=1)  # type: ignore[arg-type]
+
+
+class InjectKeywordJobCreateRequest(BaseModel):
+    section_content: str = Field(..., min_length=1)
+    section_type: str = Field(..., min_length=1)
+    keyword: str = Field(..., min_length=1)
+    job_description: str = Field(..., min_length=1)
+
+
+class ElaborateJobCreateRequest(BaseModel):
+    section_content: str = Field(..., min_length=1)
+    section_type: str = Field(..., min_length=1)
+    keyword: str = Field(..., min_length=1)
+    user_context: str = Field(..., min_length=1)
+    job_description: str = Field(..., min_length=1)
 
 
 class JobCreateResponse(BaseModel):

@@ -28,6 +28,12 @@ class AIService:
         self.provider = provider
         self.api_key = api_key
         self._llm_client: Optional[LLMProvider] = None
+        # Cache for compressed job descriptions: {job_description_hash: (compressed_jd, timestamp)}
+        self._jd_cache: Dict[str, tuple[str, float]] = {}
+        self._jd_cache_ttl: float = 3600.0  # 1 hour in seconds
+        # Cache for compressed job descriptions: {job_description_hash: (compressed_jd, timestamp)}
+        self._jd_cache: Dict[str, tuple[str, float]] = {}
+        self._jd_cache_ttl: float = 3600.0  # 1 hour in seconds
     
     def _get_llm_client(self) -> LLMProvider:
         """Lazy-initialize LLM client."""
@@ -37,6 +43,94 @@ class AIService:
                 api_key=self.api_key
             )
         return self._llm_client
+    
+    def _hash_job_description(self, job_description: str) -> str:
+        """Create a hash key for job description caching."""
+        import hashlib
+        # Use first 200 chars + hash of full text for key (avoid too long keys)
+        if len(job_description) > 200:
+            key = job_description[:200] + hashlib.md5(job_description.encode()).hexdigest()
+        else:
+            key = job_description
+        return hashlib.md5(key.encode()).hexdigest()
+    
+    async def summarize_job_requirements(self, job_description: str) -> str:
+        """
+        Extract key requirements from job description (Top 5 Technical + Top 3 Soft Skills).
+        Uses caching to avoid redundant API calls.
+        
+        Args:
+            job_description: Full job description text
+            
+        Returns:
+            Compressed requirements list as formatted string
+        """
+        import time
+        
+        # Check cache
+        cache_key = self._hash_job_description(job_description)
+        current_time = time.time()
+        
+        if cache_key in self._jd_cache:
+            compressed_jd, timestamp = self._jd_cache[cache_key]
+            if current_time - timestamp < self._jd_cache_ttl:
+                return compressed_jd
+            # Cache expired, remove it
+            del self._jd_cache[cache_key]
+        
+        # Clean old cache entries (simple cleanup)
+        if len(self._jd_cache) > 100:  # Limit cache size
+            expired_keys = [
+                key for key, (_, ts) in self._jd_cache.items()
+                if current_time - ts >= self._jd_cache_ttl
+            ]
+            for key in expired_keys:
+                del self._jd_cache[key]
+        
+        # Generate compressed JD
+        try:
+            llm = self._get_llm_client()
+            
+            system_prompt = "You are a job requirements extractor. Extract only the essential technical and soft skill requirements."
+            user_prompt = f"""
+            Extract the Top 5 Technical Requirements and Top 3 Soft Skills from this job description.
+            Return as a concise formatted list.
+            
+            Job Description:
+            {job_description}
+            
+            Format your response as:
+            Technical Requirements:
+            1. [requirement]
+            2. [requirement]
+            ...
+            
+            Soft Skills:
+            1. [skill]
+            2. [skill]
+            ...
+            
+            Return only the formatted list, no additional text.
+            """
+            
+            compressed_jd = await llm.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=300,
+                temperature=0.3
+            )
+            
+            compressed_jd = compressed_jd.strip()
+            
+            # Cache the result
+            self._jd_cache[cache_key] = (compressed_jd, current_time)
+            
+            return compressed_jd
+            
+        except Exception as e:
+            print(f"Error summarizing job requirements: {e}")
+            # Fallback: return a simple message
+            return f"Key requirements from job description (extraction failed: {str(e)})"
     
     async def generate_cv_from_text(self, job_description: str, user_experience: str) -> str:
         """
@@ -386,6 +480,127 @@ class AIService:
             print(f"Error evaluating CV: {e}")
             raise Exception(f"Failed to evaluate CV: {str(e)}")
 
+    async def evaluate_with_full_committee(self, job_description: str, cv_content: str) -> Dict[str, Any]:
+        """
+        Evaluate CV using a full committee in a single call (Board Meeting optimization).
+        
+        Args:
+            job_description: The job description to evaluate against
+            cv_content: The CV content to evaluate
+            
+        Returns:
+            Committee evaluation results with recruiter, hr, and manager perspectives
+        """
+        try:
+            llm = self._get_llm_client()
+            
+            system_prompt = "You are an expert Hiring Committee representing 3 perspectives: Technical Recruiter, HR Manager, and Hiring Manager."
+            user_prompt = f"""
+            Analyze this CV against the Job Description from three distinct perspectives.
+            
+            Job Description:
+            {job_description}
+            
+            CV Content:
+            {cv_content}
+            
+            Output JSON:
+            {{
+                "recruiter": {{ "score": 1-10, "strengths": [], "improvements": [], "reasoning": "" }},
+                "hr": {{ "score": 1-10, "strengths": [], "improvements": [], "reasoning": "" }},
+                "manager": {{ "score": 1-10, "strengths": [], "improvements": [], "reasoning": "" }}
+            }}
+            
+            Guidelines:
+            - Technical Recruiter: Focus on technical skills, experience relevance, and qualifications
+            - HR Manager: Focus on cultural fit, communication skills, and overall presentation
+            - Hiring Manager: Focus on role-specific qualifications and potential for success
+            
+            Return only valid JSON, no additional text.
+            """
+            
+            content = await llm.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=1500,
+                temperature=0.7
+            )
+            
+            content = content.strip()
+            
+            # Remove markdown formatting if present
+            if content.startswith("```json"):
+                content = content[7:]
+            elif content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            
+            # Parse JSON response
+            try:
+                import json
+                parsed = json.loads(content)
+                
+                # Ensure all required keys exist with proper structure
+                result = {
+                    "recruiter": parsed.get("recruiter", {
+                        "score": 7,
+                        "strengths": [],
+                        "improvements": [],
+                        "reasoning": "Evaluation completed"
+                    }),
+                    "hr": parsed.get("hr", {
+                        "score": 7,
+                        "strengths": [],
+                        "improvements": [],
+                        "reasoning": "Evaluation completed"
+                    }),
+                    "manager": parsed.get("manager", {
+                        "score": 7,
+                        "strengths": [],
+                        "improvements": [],
+                        "reasoning": "Evaluation completed"
+                    })
+                }
+                
+                # Normalize strengths and improvements to lists if they're strings
+                for key in ["recruiter", "hr", "manager"]:
+                    if isinstance(result[key].get("strengths"), str):
+                        result[key]["strengths"] = [result[key]["strengths"]] if result[key]["strengths"] else []
+                    if isinstance(result[key].get("improvements"), str):
+                        result[key]["improvements"] = [result[key]["improvements"]] if result[key]["improvements"] else []
+                
+                return result
+            except json.JSONDecodeError as e:
+                print(f"Error parsing committee evaluation JSON: {e}")
+                print(f"Response content: {content[:200]}")
+                # Return default structure on parse error
+                default_eval = {
+                    "score": 7,
+                    "strengths": ["Evaluation completed"],
+                    "improvements": ["See detailed feedback"],
+                    "reasoning": "JSON parsing failed, using default evaluation"
+                }
+                return {
+                    "recruiter": default_eval.copy(),
+                    "hr": default_eval.copy(),
+                    "manager": default_eval.copy()
+                }
+            
+        except Exception as e:
+            print(f"Error evaluating CV with full committee: {e}")
+            error_eval = {
+                "score": 0,
+                "strengths": ["Error in evaluation"],
+                "improvements": ["Unable to evaluate"],
+                "reasoning": f"Error: {str(e)}"
+            }
+            return {
+                "recruiter": error_eval.copy(),
+                "hr": error_eval.copy(),
+                "manager": error_eval.copy()
+            }
+
     async def evaluate_with_persona(self, persona: str, job_description: str, cv_content: str) -> Dict[str, Any]:
         """
         Evaluate CV with a specific persona.
@@ -475,23 +690,26 @@ class AIService:
         try:
             llm = self._get_llm_client()
             
-            # Define section-specific prompts
+            # Define section-specific prompts with strict editor persona
             section_prompts = {
-                'professional_summary': "You are a professional CV writer. Rephrase this professional summary to better align with the target job requirements while maintaining authenticity.",
-                'experience': "You are a professional CV writer. Rephrase this work experience description to better highlight relevant skills and achievements for the target job.",
-                'project': "You are a professional CV writer. Rephrase this project description to better showcase relevant technical skills and impact for the target job.",
-                'education': "You are a professional CV writer. Rephrase this education section to better emphasize relevant coursework, achievements, or projects for the target job.",
-                'skills': "You are a professional CV writer. Rephrase and reorganize these skills to better match the target job requirements and highlight the most relevant ones first.",
-                'certification': "You are a professional CV writer. Rephrase this certification description to better emphasize its relevance to the target job."
+                'professional_summary': "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase this professional summary to better align with the target job requirements while maintaining authenticity. Do not add skills or responsibilities that are not supported by the source text.",
+                'experience': "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase this work experience description to better highlight relevant skills and achievements for the target job. Do not add skills or responsibilities that are not supported by the source text.",
+                'project': "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase this project description to better showcase relevant technical skills and impact for the target job. Do not add skills or responsibilities that are not supported by the source text.",
+                'education': "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase this education section to better emphasize relevant coursework, achievements, or projects for the target job. Do not add skills or responsibilities that are not supported by the source text.",
+                'skills': "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase and reorganize these skills to better match the target job requirements and highlight the most relevant ones first. Do not add skills that are not in the source text.",
+                'certification': "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase this certification description to better emphasize its relevance to the target job. Do not add skills or responsibilities that are not supported by the source text."
             }
             
-            base_prompt = section_prompts.get(section_type, "You are a professional CV writer. Rephrase this CV section to better align with the target job requirements.")
+            base_prompt = section_prompts.get(section_type, "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase this CV section to better align with the target job requirements. Do not add skills or responsibilities that are not supported by the source text.")
+            
+            # Use compressed job requirements instead of full job description
+            key_requirements = await self.summarize_job_requirements(job_description)
             
             user_prompt = f"""
             {base_prompt}
             
-            Job Description:
-            {job_description}
+            Key Job Requirements:
+            {key_requirements}
             
             Current {section_type.replace('_', ' ').title()} Content:
             {section_content}
@@ -520,6 +738,114 @@ class AIService:
         except Exception as e:
             print(f"Error rephrasing CV section: {e}")
             raise Exception(f"Failed to rephrase CV section: {str(e)}")
+
+    async def inject_keyword(self, section_content: str, section_type: str, keyword: str, job_description: str) -> str:
+        """
+        Attempt to inject a keyword into a CV section truthfully.
+        Returns either rewritten text with keyword, or "REQUIRES_CONTEXT" if keyword cannot be added truthfully.
+        
+        Args:
+            section_content: The content of the CV section
+            section_type: The type of section (e.g., 'professional_summary', 'experience', 'project')
+            keyword: The keyword to inject
+            job_description: The job description for context
+            
+        Returns:
+            Either rewritten text with keyword, or "REQUIRES_CONTEXT" if keyword cannot be added truthfully
+        """
+        try:
+            llm = self._get_llm_client()
+            
+            system_prompt = f"""You are a strict Resume Editor. The user wants to add the keyword "{keyword}".
+
+RULES:
+1. Only add the keyword if it fits naturally into an existing achievement (e.g., changing "deployed code" to "deployed code via CI/CD").
+2. DO NOT invent new tasks or responsibilities. Do not say they managed a team if they didn't.
+3. If the keyword cannot be added truthfully based only on the text provided, return exactly: "REQUIRES_CONTEXT"
+4. If you can add it, return only the rewritten text with no explanations."""
+
+            # Use compressed job requirements instead of full job description
+            key_requirements = await self.summarize_job_requirements(job_description)
+            
+            user_prompt = f"""
+Key Job Requirements:
+{key_requirements}
+
+Current {section_type.replace('_', ' ').title()} Content:
+{section_content}
+
+Task: Add the keyword "{keyword}" to this section if it can be truthfully integrated into existing achievements. If the keyword cannot be naturally added based only on the existing text, return exactly "REQUIRES_CONTEXT" (with no other text).
+
+Return only the rewritten text (if keyword can be added) or "REQUIRES_CONTEXT" (if it cannot be added truthfully).
+"""
+            
+            response = await llm.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=800,
+                temperature=0.3
+            )
+            
+            result = response.strip()
+            # Normalize the response - check if it's the special marker
+            if result.upper() == "REQUIRES_CONTEXT" or result == "REQUIRES_CONTEXT":
+                return "REQUIRES_CONTEXT"
+            
+            return result
+            
+        except Exception as e:
+            print(f"Error injecting keyword: {e}")
+            raise Exception(f"Failed to inject keyword: {str(e)}")
+
+    async def elaborate_with_keyword(self, section_content: str, section_type: str, keyword: str, user_context: str, job_description: str) -> str:
+        """
+        Elaborate a CV section with a keyword using user-provided context.
+        
+        Args:
+            section_content: The content of the CV section
+            section_type: The type of section (e.g., 'professional_summary', 'experience', 'project')
+            keyword: The keyword to add
+            user_context: User-provided context about how they used the keyword
+            job_description: The job description for context
+            
+        Returns:
+            Rewritten section content with keyword integrated using user context
+        """
+        try:
+            llm = self._get_llm_client()
+            
+            system_prompt = "You are a Strict Resume Editor. Your task is to rewrite resume content using only the user-provided context as factual basis. Do not invent details beyond what the user explicitly states. Incorporate keywords naturally while maintaining authenticity and professional tone."
+            
+            # Use compressed job requirements instead of full job description
+            key_requirements = await self.summarize_job_requirements(job_description)
+            
+            user_prompt = f"""
+User wants to add "{keyword}" to their resume.
+User Context: "{user_context}"
+
+Key Job Requirements:
+{key_requirements}
+
+Current {section_type.replace('_', ' ').title()} Content:
+{section_content}
+
+Task: Rewrite the Current Text to incorporate the Keyword, using the User Context as the factual basis. Do not invent any details beyond what the user explicitly stated. Enhance the professional tone. Keep it concise. Use action verbs and quantifiable achievements where possible.
+
+Return only the rewritten content, no additional text or explanations.
+"""
+            
+            response = await llm.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=800,
+                temperature=0.7
+            )
+            
+            return response.strip()
+            
+        except Exception as e:
+            print(f"Error elaborating with keyword: {e}")
+            raise Exception(f"Failed to elaborate with keyword: {str(e)}")
 
     async def recommend_template(self, job_description: str, cv_data: Dict[str, Any]) -> Dict[str, Any]:
         """

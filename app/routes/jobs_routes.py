@@ -8,8 +8,10 @@ from fastapi import APIRouter, Header, HTTPException, Depends
 
 from ..core.config import settings
 from ..models.job_models import (
+    ElaborateJobCreateRequest,
     EvaluateJobCreateRequest,
     ExtractJobCreateRequest,
+    InjectKeywordJobCreateRequest,
     JobCreateResponse,
     JobError,
     JobStatus,
@@ -129,6 +131,47 @@ def create_recommend_job(
     job_id = svc.create_recommend_job(
         job_description=request.job_description,
         cv_data=request.cv_data,
+        user_provider=x_user_provider,
+        user_api_key=x_user_api_key,
+        user_tier=tier.value,
+    )
+    return JobCreateResponse(job_id=job_id, status=JobStatus.queued)
+
+
+@router.post("/inject-keyword", status_code=202, response_model=JobCreateResponse)
+def create_inject_keyword_job(
+    request: InjectKeywordJobCreateRequest,
+    x_user_provider: str | None = Header(default=None, alias="X-User-Provider"),
+    x_user_api_key: str | None = Header(default=None, alias="X-User-Api-Key"),
+    tier: UserTier = Depends(require_ai_operations),
+) -> JobCreateResponse:
+    svc = _get_jobs_service()
+    job_id = svc.create_inject_keyword_job(
+        section_content=request.section_content,
+        section_type=request.section_type,
+        keyword=request.keyword,
+        job_description=request.job_description,
+        user_provider=x_user_provider,
+        user_api_key=x_user_api_key,
+        user_tier=tier.value,
+    )
+    return JobCreateResponse(job_id=job_id, status=JobStatus.queued)
+
+
+@router.post("/elaborate", status_code=202, response_model=JobCreateResponse)
+def create_elaborate_job(
+    request: ElaborateJobCreateRequest,
+    x_user_provider: str | None = Header(default=None, alias="X-User-Provider"),
+    x_user_api_key: str | None = Header(default=None, alias="X-User-Api-Key"),
+    tier: UserTier = Depends(require_ai_operations),
+) -> JobCreateResponse:
+    svc = _get_jobs_service()
+    job_id = svc.create_elaborate_job(
+        section_content=request.section_content,
+        section_type=request.section_type,
+        keyword=request.keyword,
+        user_context=request.user_context,
+        job_description=request.job_description,
         user_provider=x_user_provider,
         user_api_key=x_user_api_key,
         user_tier=tier.value,

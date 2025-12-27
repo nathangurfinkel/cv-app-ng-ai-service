@@ -190,6 +190,84 @@ class JobsService:
         )
         return job_id
 
+    def create_inject_keyword_job(
+        self,
+        *,
+        section_content: str,
+        section_type: str,
+        keyword: str,
+        job_description: str,
+        user_provider: str | None = None,
+        user_api_key: str | None = None,
+        user_tier: str | None = None,
+    ) -> str:
+        job_id = str(uuid.uuid4())
+        ttl = int(time.time()) + int(self._ttl_hours * 3600)
+        payload = {
+            "section_content": section_content,
+            "section_type": section_type,
+            "keyword": keyword,
+            "job_description": job_description,
+        }
+        
+        validate_sqs_message_size(payload)
+        
+        self._repository.create_job(
+            job_id=job_id,
+            job_type=JobType.inject_keyword.value,
+            status=JobStatus.queued,
+            ttl_epoch_seconds=ttl,
+        )
+        self._queue.enqueue(
+            job_id=job_id,
+            job_type=JobType.inject_keyword.value,
+            payload=payload,
+            user_provider=user_provider,
+            user_api_key=user_api_key,
+            user_tier=user_tier,
+        )
+        return job_id
+
+    def create_elaborate_job(
+        self,
+        *,
+        section_content: str,
+        section_type: str,
+        keyword: str,
+        user_context: str,
+        job_description: str,
+        user_provider: str | None = None,
+        user_api_key: str | None = None,
+        user_tier: str | None = None,
+    ) -> str:
+        job_id = str(uuid.uuid4())
+        ttl = int(time.time()) + int(self._ttl_hours * 3600)
+        payload = {
+            "section_content": section_content,
+            "section_type": section_type,
+            "keyword": keyword,
+            "user_context": user_context,
+            "job_description": job_description,
+        }
+        
+        validate_sqs_message_size(payload)
+        
+        self._repository.create_job(
+            job_id=job_id,
+            job_type=JobType.elaborate.value,
+            status=JobStatus.queued,
+            ttl_epoch_seconds=ttl,
+        )
+        self._queue.enqueue(
+            job_id=job_id,
+            job_type=JobType.elaborate.value,
+            payload=payload,
+            user_provider=user_provider,
+            user_api_key=user_api_key,
+            user_tier=user_tier,
+        )
+        return job_id
+
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         return self._repository.get_job(job_id)
 

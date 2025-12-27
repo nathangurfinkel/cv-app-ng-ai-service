@@ -158,7 +158,7 @@ class EvaluationService:
     
     async def evaluate_cv_with_committee(self, job_description: str, cv_content: str) -> Dict[str, Any]:
         """
-        Evaluate CV using committee of personas.
+        Evaluate CV using committee of personas (optimized: single call instead of 3).
         
         Args:
             job_description: Job description
@@ -169,19 +169,57 @@ class EvaluationService:
         """
         print_step("Committee Evaluation Setup", {
             "personas": settings.EVALUATION_PERSONAS,
-            "cv_content_length": len(cv_content)
+            "cv_content_length": len(cv_content),
+            "optimization": "single_call"
         }, "input")
         
-        evaluation_tasks = [
-            self.ai_service.evaluate_with_persona(p, job_description, cv_content)
-            for p in settings.EVALUATION_PERSONAS
-        ]
+        # Use optimized single-call method
+        committee_result = await self.ai_service.evaluate_with_full_committee(job_description, cv_content)
         
         print_step("Committee Evaluation Execution", {
-            "task_count": len(evaluation_tasks)
+            "method": "evaluate_with_full_committee"
         }, "input")
         
-        committee_evaluations = await asyncio.gather(*evaluation_tasks)
+        # Map the committee result to the expected format
+        # Map recruiter -> first persona, hr -> second persona, manager -> third persona
+        # This maintains compatibility with existing frontend expectations
+        persona_mapping = {
+            "recruiter": 0,  # Maps to first persona (Creative Recruiter)
+            "hr": 1,          # Maps to second persona (could be HR-related)
+            "manager": 2      # Maps to third persona (Strict Hiring Manager)
+        }
+        
+        # Convert committee result to list format matching original structure
+        committee_evaluations = []
+        for persona_name in settings.EVALUATION_PERSONAS:
+            # Map persona index to committee role
+            # Default mapping: first -> recruiter, second -> hr, third -> manager
+            persona_index = settings.EVALUATION_PERSONAS.index(persona_name)
+            if persona_index == 0:
+                committee_role = "recruiter"
+            elif persona_index == 1:
+                committee_role = "hr"
+            else:
+                committee_role = "manager"
+            
+            # Get the evaluation for this role
+            eval_data = committee_result.get(committee_role, {
+                "score": 7,
+                "strengths": [],
+                "improvements": [],
+                "reasoning": "Evaluation completed"
+            })
+            
+            # Ensure strengths and improvements are lists
+            if isinstance(eval_data.get("strengths"), str):
+                eval_data["strengths"] = [eval_data["strengths"]] if eval_data["strengths"] else []
+            if isinstance(eval_data.get("improvements"), str):
+                eval_data["improvements"] = [eval_data["improvements"]] if eval_data["improvements"] else []
+            
+            # Add persona name for compatibility
+            eval_data["persona"] = persona_name
+            committee_evaluations.append(eval_data)
+        
         print_step("Committee Evaluation Execution", {
             "completed_evaluations": len(committee_evaluations)
         }, "output")

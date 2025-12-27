@@ -173,6 +173,42 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 cv_data = payload.get("cv_data") or {}
                 recommendation = _run_async(ai.recommend_template(jd, cv_data))
                 repo.update_status(job_id=job_id, status=JobStatus.succeeded, result=recommendation)
+            elif job_type == JobType.inject_keyword.value:
+                section_content = payload.get("section_content", "")
+                section_type = payload.get("section_type", "")
+                keyword = payload.get("keyword", "")
+                jd = validate_job_description(payload.get("job_description", ""))
+                result = _run_async(ai.inject_keyword(section_content, section_type, keyword, jd))
+                # Check if result is REQUIRES_CONTEXT
+                if result == "REQUIRES_CONTEXT":
+                    repo.update_status(
+                        job_id=job_id,
+                        status=JobStatus.succeeded,
+                        result={"requires_context": True},
+                    )
+                else:
+                    repo.update_status(
+                        job_id=job_id,
+                        status=JobStatus.succeeded,
+                        result={
+                            "rephrased_content": result,
+                            "requires_context": False,
+                        },
+                    )
+            elif job_type == JobType.elaborate.value:
+                section_content = payload.get("section_content", "")
+                section_type = payload.get("section_type", "")
+                keyword = payload.get("keyword", "")
+                user_context = payload.get("user_context", "")
+                jd = validate_job_description(payload.get("job_description", ""))
+                rephrased_content = _run_async(ai.elaborate_with_keyword(section_content, section_type, keyword, user_context, jd))
+                repo.update_status(
+                    job_id=job_id,
+                    status=JobStatus.succeeded,
+                    result={
+                        "rephrased_content": rephrased_content,
+                    },
+                )
             else:
                 repo.update_status(
                     job_id=job_id,
