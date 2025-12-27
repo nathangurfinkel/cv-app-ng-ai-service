@@ -675,7 +675,7 @@ class AIService:
                 "reasoning": f"Error: {str(e)}"
             }
 
-    async def rephrase_cv_section(self, section_content: str, section_type: str, job_description: str) -> str:
+    async def rephrase_cv_section(self, section_content: str, section_type: str, job_description: str, instruction_type: str = 'default') -> str:
         """
         Rephrase a specific CV section to better fit the target job.
         
@@ -683,6 +683,7 @@ class AIService:
             section_content: The content of the CV section to rephrase
             section_type: The type of section (e.g., 'professional_summary', 'experience', 'project')
             job_description: The job description to tailor the content for
+            instruction_type: Type of rephrase instruction ('grammar', 'shorten', 'formal', 'casual', 'default')
             
         Returns:
             Rephrased section content
@@ -690,24 +691,68 @@ class AIService:
         try:
             llm = self._get_llm_client()
             
-            # Define section-specific prompts with strict editor persona
-            section_prompts = {
-                'professional_summary': "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase this professional summary to better align with the target job requirements while maintaining authenticity. Do not add skills or responsibilities that are not supported by the source text.",
-                'experience': "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase this work experience description to better highlight relevant skills and achievements for the target job. Do not add skills or responsibilities that are not supported by the source text.",
-                'project': "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase this project description to better showcase relevant technical skills and impact for the target job. Do not add skills or responsibilities that are not supported by the source text.",
-                'education': "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase this education section to better emphasize relevant coursework, achievements, or projects for the target job. Do not add skills or responsibilities that are not supported by the source text.",
-                'skills': "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase and reorganize these skills to better match the target job requirements and highlight the most relevant ones first. Do not add skills that are not in the source text.",
-                'certification': "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase this certification description to better emphasize its relevance to the target job. Do not add skills or responsibilities that are not supported by the source text."
+            # Define section-specific prompts with strict technical editor persona (anti-fluff protocol)
+            strict_editor_base = """You are a Strict Technical Editor for Senior Engineering Resumes.
+
+Style Guide:
+1. Be Direct: Use simple, strong verbs (e.g., "Led", "Built", "Designed"). Avoid flowery metaphors like "Spearheaded", "Steered", "Orchestrated", or "Fostered".
+2. No Fluff: Remove adjectives that add no value (e.g., remove "consistent leadership", "robust solutions", "seamless integration").
+3. Fact-Based: Focus on *what* was done and the *result*.
+4. Brevity: The output should often be shorter than the input.
+
+Bad Example: "Spearheading the recruitment process to foster employee growth."
+Good Example: "Hired and mentored 5 engineers."
+
+If the user asks for 'More Formal', interpret that as 'More Precise', not 'More Fancy'."""
+
+            # Add instruction-specific enhancements
+            instruction_enhancements = {
+                'grammar': "Act as a Proofreader. Fix typos and syntax ONLY. Do not change word choice.",
+                'shorten': "Act as a Ruthless Editor. Cut word count by 30%.",
+                'formal': "Make the tone professional and precise, but NOT flowery.",
+                'casual': "Make the tone more conversational while maintaining professionalism.",
+                'default': ""  # Use base anti-fluff protocol
             }
             
-            base_prompt = section_prompts.get(section_type, "You are a Strict Resume Editor. Your goal is to improve clarity and impact without inventing facts. Rephrase this CV section to better align with the target job requirements. Do not add skills or responsibilities that are not supported by the source text.")
+            instruction_append = instruction_enhancements.get(instruction_type, "")
+            if instruction_append:
+                strict_editor_base = f"{strict_editor_base}\n\n{instruction_append}"
+
+            section_prompts = {
+                'professional_summary': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this professional summary to better align with the target job requirements while maintaining authenticity. Do not add skills or responsibilities that are not supported by the source text.",
+                'experience': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this work experience description to better highlight relevant skills and achievements for the target job. Do not add skills or responsibilities that are not supported by the source text.",
+                'project': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this project description to better showcase relevant technical skills and impact for the target job. Do not add skills or responsibilities that are not supported by the source text.",
+                'education': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this education section to better emphasize relevant coursework, achievements, or projects for the target job. Do not add skills or responsibilities that are not supported by the source text.",
+                'skills': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase and reorganize these skills to better match the target job requirements and highlight the most relevant ones first. Do not add skills that are not in the source text.",
+                'certification': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this certification description to better emphasize its relevance to the target job. Do not add skills or responsibilities that are not supported by the source text."
+            }
+            
+            base_prompt = section_prompts.get(section_type, f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this CV section to better align with the target job requirements. Do not add skills or responsibilities that are not supported by the source text.")
             
             # Use compressed job requirements instead of full job description
             key_requirements = await self.summarize_job_requirements(job_description)
             
-            user_prompt = f"""
-            {base_prompt}
+            # Build instruction-specific user prompt
+            if instruction_type == 'grammar':
+                instruction_text = "Fix typos and syntax errors only. Do not change word choice or meaning."
+            elif instruction_type == 'shorten':
+                instruction_text = "Cut word count by approximately 30% while preserving all essential information."
+            elif instruction_type == 'formal':
+                instruction_text = "Make the tone professional and precise, but NOT flowery. Use formal language without corporate buzzwords."
+            elif instruction_type == 'casual':
+                instruction_text = "Make the tone more conversational while maintaining professionalism and clarity."
+            else:  # default
+                instruction_text = """1. Rephrase the content to better match the job requirements
+            2. Use simple, direct action verbs (Led, Built, Designed, Managed, Created). DO NOT use flowery verbs like "Spearheaded", "Steered", "Orchestrated", "Fostered", "Championed", or "Pioneered"
+            3. Remove unnecessary adjectives that add no value (avoid "robust", "seamless", "consistent", "comprehensive" unless they're essential)
+            4. Focus on measurable results and quantifiable achievements where possible
+            5. Highlight relevant technical skills and technologies mentioned in the job description
+            6. Be concise: the output should be the same length or shorter than the input
+            7. Focus on facts: what was done and the result, not flowery descriptions
+            8. Use keywords from the job description naturally
+            9. Remember: "Professional" means "Precise", not "Fancy" """
             
+            user_prompt = f"""
             Key Job Requirements:
             {key_requirements}
             
@@ -715,13 +760,7 @@ class AIService:
             {section_content}
             
             Instructions:
-            1. Rephrase the content to better match the job requirements
-            2. Use action verbs and quantifiable achievements where possible
-            3. Highlight relevant technical skills and technologies mentioned in the job description
-            4. Maintain professional tone and authenticity
-            5. Keep the same length or slightly shorter
-            6. Focus on impact and results rather than just responsibilities
-            7. Use keywords from the job description naturally
+            {instruction_text}
             
             Return only the rephrased content, no additional text or explanations.
             """

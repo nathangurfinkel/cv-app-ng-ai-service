@@ -113,6 +113,7 @@ def create_rephrase_job(
         section_content=request.section_content,
         section_type=request.section_type,
         job_description=request.job_description,
+        instruction_type=request.instruction_type,
         user_provider=x_user_provider,
         user_api_key=x_user_api_key,
         user_tier=tier.value,

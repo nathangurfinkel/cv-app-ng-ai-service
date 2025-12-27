@@ -129,6 +129,7 @@ class JobsService:
         section_content: str,
         section_type: str,
         job_description: str,
+        instruction_type: str | None = 'default',
         user_provider: str | None = None,
         user_api_key: str | None = None,
         user_tier: str | None = None,
@@ -139,6 +140,7 @@ class JobsService:
             "section_content": section_content,
             "section_type": section_type,
             "job_description": job_description,
+            "instruction_type": instruction_type or 'default',
         }
         
         validate_sqs_message_size(payload)

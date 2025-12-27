@@ -158,7 +158,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 section_content = payload.get("section_content", "")
                 section_type = payload.get("section_type", "")
                 jd = validate_job_description(payload.get("job_description", ""))
-                rephrased_content = _run_async(ai.rephrase_cv_section(section_content, section_type, jd))
+                instruction_type = payload.get("instruction_type", "default")
+                rephrased_content = _run_async(ai.rephrase_cv_section(section_content, section_type, jd, instruction_type))
                 repo.update_status(
                     job_id=job_id,
                     status=JobStatus.succeeded,

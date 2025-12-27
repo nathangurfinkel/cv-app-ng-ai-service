@@ -47,6 +47,7 @@ class RephraseJobCreateRequest(BaseModel):
     section_content: str = Field(..., min_length=1)
     section_type: str = Field(..., min_length=1)
     job_description: str = Field(..., min_length=1)
+    instruction_type: Optional[str] = Field(default='default', description="Type of rephrase instruction: 'grammar', 'shorten', 'formal', 'casual', or 'default'")
 
 
 class RecommendJobCreateRequest(BaseModel):
