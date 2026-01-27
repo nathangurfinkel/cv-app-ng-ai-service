@@ -19,15 +19,19 @@ def process_queue():
     if not settings.JOBS_QUEUE_URL:
         print("ERROR: JOBS_QUEUE_URL not configured")
         return
+
+    if not settings.AWS_ENDPOINT_URL:
+        print("WARNING: AWS_ENDPOINT_URL is not set. Worker will use real AWS. For LocalStack, set AWS_ENDPOINT_URL=http://localhost:4566 in .env or run via dev.sh.")
+
+    print(f"Polling queue: {settings.JOBS_QUEUE_URL}")
+    print(f"Using AWS_ENDPOINT_URL: {settings.AWS_ENDPOINT_URL or '(default/real AWS)'}")
+    print("Press Ctrl+C to stop\n")
     
     sqs_kwargs = {}
     if settings.AWS_ENDPOINT_URL:
         sqs_kwargs["endpoint_url"] = settings.AWS_ENDPOINT_URL
     
     sqs = boto3.client("sqs", **sqs_kwargs)
-    
-    print(f"Polling queue: {settings.JOBS_QUEUE_URL}")
-    print("Press Ctrl+C to stop\n")
     
     while True:
         try:

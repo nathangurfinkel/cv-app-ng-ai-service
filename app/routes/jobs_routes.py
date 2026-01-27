@@ -89,7 +89,13 @@ def create_extract_job(
             "job_id": job_id,
             "status": JobStatus.queued.value
         })
-        
+        # #region agent log
+        try:
+            with open("/Users/nathangurfinkel/repos/cv-app-ng-frontend/.cursor/debug.log", "a") as f:
+                f.write(json.dumps({"location": "jobs_routes:create_extract_job", "message": "job_created", "data": {"job_id": job_id}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H4"}) + "\n")
+        except Exception:
+            pass
+        # #endregion
         return JobCreateResponse(job_id=job_id, status=JobStatus.queued)
     except HTTPException:
         # Re-raise HTTP exceptions (they're already properly formatted)

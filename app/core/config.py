@@ -6,8 +6,9 @@ import os
 from typing import List
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load environment variables. override=True lets .env override inherited
+# env (e.g. from dev.sh), so local .env always wins when set.
+load_dotenv(override=True)
 
 class Settings:
     """Application settings and configuration."""

@@ -140,13 +140,18 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     "has_job_description": bool(job_description),
                     "job_description_length": len(job_description) if job_description else 0
                 })
-                
                 # Pass None if job_description is empty string
                 job_description_or_none = job_description if job_description and job_description.strip() else None
                 
                 worker_logger.info("[WORKER] Calling AI extraction")
                 raw_ai_data = _run_async(ai.extract_structured_cv_data(cv_text, job_description_or_none))  # type: ignore[call-arg]
-                
+                # #region agent log
+                try:
+                    with open("/Users/nathangurfinkel/repos/cv-app-ng-frontend/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps({"location": "worker:extract_ai_done", "message": "ai_extract_done", "data": {"job_id": job_id}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H5"}) + "\n")
+                except Exception:
+                    pass
+                # #endregion
                 worker_logger.info("[WORKER] AI extraction complete", extra={
                     "has_personal": "personal" in raw_ai_data,
                     "experience_count": len(raw_ai_data.get("experience", [])),

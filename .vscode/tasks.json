@@ -5,7 +5,9 @@
       "label": "AI: Dev (Full Stack)",
       "type": "shell",
       "command": "PATH=/Applications/Docker.app/Contents/Resources/bin:$PATH bash ./dev.sh",
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder:cv-app-ng-ai-service}"
+      },
       "isBackground": true,
       "problemMatcher": []
     },
@@ -13,14 +15,18 @@
       "label": "AI: Stop Local Dev",
       "type": "shell",
       "command": "bash -c '/Applications/Docker.app/Contents/Resources/bin/docker compose -f docker-compose.localstack.yml down || true; pkill -f \"uvicorn app.main:app\" || true; pkill -f process-localstack-queue.py || true'",
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder:cv-app-ng-ai-service}"
+      },
       "problemMatcher": []
     },
     {
       "label": "AI: Deploy to Cloud",
       "type": "shell",
       "command": "bash ./deploy-container.sh",
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder:cv-app-ng-ai-service}"
+      },
       "problemMatcher": []
     }
   ]
