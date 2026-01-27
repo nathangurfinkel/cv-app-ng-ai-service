@@ -130,6 +130,7 @@ class JobsService:
         section_type: str,
         job_description: str,
         instruction_type: str | None = 'default',
+        custom_instruction: str | None = None,
         user_provider: str | None = None,
         user_api_key: str | None = None,
         user_tier: str | None = None,
@@ -142,6 +143,8 @@ class JobsService:
             "job_description": job_description,
             "instruction_type": instruction_type or 'default',
         }
+        if custom_instruction is not None:
+            payload["custom_instruction"] = custom_instruction
         
         validate_sqs_message_size(payload)
         
@@ -263,6 +266,48 @@ class JobsService:
         self._queue.enqueue(
             job_id=job_id,
             job_type=JobType.elaborate.value,
+            payload=payload,
+            user_provider=user_provider,
+            user_api_key=user_api_key,
+            user_tier=user_tier,
+        )
+        return job_id
+
+    def create_improve_from_feedback_job(
+        self,
+        *,
+        cv_json: Dict[str, Any],
+        job_description: str,
+        persona_feedback: Dict[str, Any],
+        user_responses: list[str],
+        target_section: str,
+        section_context: str,
+        user_provider: str | None = None,
+        user_api_key: str | None = None,
+        user_tier: str | None = None,
+    ) -> str:
+        job_id = str(uuid.uuid4())
+        ttl = int(time.time()) + int(self._ttl_hours * 3600)
+        payload = {
+            "cv_json": cv_json,
+            "job_description": job_description,
+            "persona_feedback": persona_feedback,
+            "user_responses": user_responses,
+            "target_section": target_section,
+            "section_context": section_context,
+        }
+        
+        validate_sqs_message_size(payload)
+        
+        self._repository.create_job(
+            job_id=job_id,
+            job_type=JobType.improve_from_feedback.value,
+            status=JobStatus.queued,
+            ttl_epoch_seconds=ttl,
+        )
+        self._queue.enqueue(
+            job_id=job_id,
+            job_type=JobType.improve_from_feedback.value,
             payload=payload,
             user_provider=user_provider,
             user_api_key=user_api_key,

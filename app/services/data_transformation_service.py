@@ -29,6 +29,27 @@ class DataTransformationService:
         Returns:
             Structured CVData model with enhanced date handling
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info("[DATA_TRANSFORM] Starting transformation", extra={
+            "input_keys": list(ai_data.keys()),
+            "has_personal": "personal" in ai_data,
+            "has_experience": "experience" in ai_data,
+            "has_education": "education" in ai_data,
+            "experience_count": len(ai_data.get("experience", [])),
+            "raw_experience_sample": [
+                {
+                    "role": exp.get("role"),
+                    "company": exp.get("company"),
+                    "achievements_count": len(exp.get("achievements", [])),
+                    "description": exp.get("description", "")[:100] if exp.get("description") else "",
+                    "achievements": exp.get("achievements", [])[:3] if exp.get("achievements") else []
+                }
+                for exp in ai_data.get("experience", [])[:2]
+            ]
+        })
+        
         print_step("Data Transformation", {
             "input_keys": list(ai_data.keys()),
             "has_personal": "personal" in ai_data,
@@ -137,6 +158,26 @@ class DataTransformationService:
                 skills=skills,
                 licenses_certifications=licenses_certifications
             )
+            
+            logger.info("[DATA_TRANSFORM] Transformation complete", extra={
+                "personal_name": cv_data.personal.name,
+                "experience_count": len(cv_data.experience),
+                "education_count": len(cv_data.education),
+                "projects_count": len(cv_data.projects),
+                "certifications_count": len(cv_data.licenses_certifications),
+                "experience_details": [
+                    {
+                        "role": exp.role,
+                        "company": exp.company,
+                        "achievements_count": len(exp.achievements) if exp.achievements else 0,
+                        "description_length": len(exp.description) if exp.description else 0,
+                        "has_description": bool(exp.description),
+                        "has_achievements": len(exp.achievements) > 0 if exp.achievements else False,
+                        "achievements_preview": exp.achievements[:2] if exp.achievements else []
+                    }
+                    for exp in cv_data.experience[:3]
+                ]
+            })
             
             print_step("Data Transformation Complete", {
                 "personal_name": cv_data.personal.name,

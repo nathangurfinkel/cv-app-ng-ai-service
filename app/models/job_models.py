@@ -26,6 +26,7 @@ class JobType(str, Enum):
     recommend = "recommend"
     inject_keyword = "inject_keyword"
     elaborate = "elaborate"
+    improve_from_feedback = "improve_from_feedback"
 
 
 class ExtractJobCreateRequest(BaseModel):
@@ -47,7 +48,14 @@ class RephraseJobCreateRequest(BaseModel):
     section_content: str = Field(..., min_length=1)
     section_type: str = Field(..., min_length=1)
     job_description: str = Field(..., min_length=1)
-    instruction_type: Optional[str] = Field(default='default', description="Type of rephrase instruction: 'grammar', 'shorten', 'formal', 'casual', or 'default'")
+    instruction_type: Optional[str] = Field(
+        default='default',
+        description="Type of rephrase instruction: 'grammar', 'shorten', 'formal', 'casual', 'expand', 'custom', or 'default'",
+    )
+    custom_instruction: Optional[str] = Field(
+        default=None,
+        description="When instruction_type is 'custom', this is the user's free-form instruction for the LLM.",
+    )
 
 
 class RecommendJobCreateRequest(BaseModel):
@@ -68,6 +76,15 @@ class ElaborateJobCreateRequest(BaseModel):
     keyword: str = Field(..., min_length=1)
     user_context: str = Field(..., min_length=1)
     job_description: str = Field(..., min_length=1)
+
+
+class ImproveFromFeedbackJobCreateRequest(BaseModel):
+    cv_json: Dict[str, Any] = Field(..., min_length=1)  # type: ignore[arg-type]
+    job_description: str = Field(..., min_length=1)
+    persona_feedback: Dict[str, Any] = Field(..., min_length=1)  # type: ignore[arg-type]
+    user_responses: list[str] = Field(..., min_items=1)
+    target_section: str = Field(..., min_length=1)
+    section_context: str = Field(..., min_length=1)
 
 
 class JobCreateResponse(BaseModel):

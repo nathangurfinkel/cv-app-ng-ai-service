@@ -16,111 +16,6 @@ API_ID="${API_ID:-wz2lhr4qzk}" # existing API Gateway id in this account
 JOBS_TABLE_NAME="${JOBS_TABLE_NAME:-cv-builder-jobs}"
 JOBS_QUEUE_NAME="${JOBS_QUEUE_NAME:-cv-builder-jobs-queue}"
 DLQ_NAME="${DLQ_NAME:-cv-builder-jobs-dlq}"
-ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/lambda-execution-role"
-ROLE_NAME="lambda-execution-role"
-
-API_ENV_FILE=$(mktemp)
-WORKER_ENV_FILE=$(mktemp)
-
-cleanup_env_files() {
-  rm -f "$API_ENV_FILE" "$WORKER_ENV_FILE"
-}
-trap cleanup_env_files EXIT INT TERM
-
-ensure_sqs_role_permissions() {
-  local policy_file
-  policy_file=$(mktemp)
-  cat > "$policy_file" <<'POLICY'
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "sqs:ReceiveMessage",
-        "sqs:DeleteMessage",
-        "sqs:GetQueueAttributes",
-        "sqs:ChangeMessageVisibility"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-POLICY
-
-  aws iam put-role-policy \
-    --role-name "${ROLE_NAME}" \
-    --policy-name "cv-builder-sqs-consumer" \
-    --policy-document "file://${policy_file}" >/dev/null
-  rm -f "$policy_file"
-}
-
-write_api_env_file() {
-  MOCK_PINECONE_VALUE="${MOCK_PINECONE:-false}" \
-  PINECONE_API_KEY_VALUE="${PINECONE_API_KEY:-}" \
-  OPENAI_API_KEY_VALUE="${OPENAI_API_KEY:-}" \
-  VERBOSE_VALUE="${VERBOSE:-false}" \
-  CORS_ORIGINS_VALUE="${CORS_ORIGINS:-https://main.d1z0zksl0bfdg3.amplifyapp.com}" \
-  DEBUG_VALUE="${DEBUG:-false}" \
-  JOBS_TABLE_NAME_VALUE="${JOBS_TABLE_NAME:-}" \
-  JOBS_QUEUE_URL_VALUE="${JOBS_QUEUE_URL:-}" \
-  LICENSE_SUBSCRIPTIONS_TABLE_NAME_VALUE="${LICENSE_SUBSCRIPTIONS_TABLE_NAME:-}" \
-  LEMONSQUEEZY_WEBHOOK_SECRET_VALUE="${LEMONSQUEEZY_WEBHOOK_SECRET:-}" \
-  python3 - <<'PY' > "$API_ENV_FILE"
-import json
-import os
-import sys
-
-data = {
-    "Variables": {
-        "MOCK_PINECONE": os.environ.get("MOCK_PINECONE_VALUE", "false"),
-        "PINECONE_API_KEY": os.environ.get("PINECONE_API_KEY_VALUE", ""),
-        "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY_VALUE", ""),
-        "VERBOSE": os.environ.get("VERBOSE_VALUE", "false"),
-        "CORS_ORIGINS": os.environ.get("CORS_ORIGINS_VALUE", ""),
-        "DEBUG": os.environ.get("DEBUG_VALUE", "false"),
-        "JOBS_TABLE_NAME": os.environ.get("JOBS_TABLE_NAME_VALUE", ""),
-        "JOBS_QUEUE_URL": os.environ.get("JOBS_QUEUE_URL_VALUE", ""),
-        "LICENSE_SUBSCRIPTIONS_TABLE_NAME": os.environ.get(
-            "LICENSE_SUBSCRIPTIONS_TABLE_NAME_VALUE", ""
-        ),
-        "LEMONSQUEEZY_WEBHOOK_SECRET": os.environ.get(
-            "LEMONSQUEEZY_WEBHOOK_SECRET_VALUE", ""
-        ),
-    }
-}
-json.dump(data, sys.stdout)
-PY
-}
-
-write_worker_env_file() {
-  JOBS_TABLE_NAME_VALUE="${JOBS_TABLE_NAME:-}" \
-  JOBS_QUEUE_URL_VALUE="${JOBS_QUEUE_URL:-}" \
-  OPENAI_API_KEY_VALUE="${OPENAI_API_KEY:-}" \
-  JOB_TTL_HOURS_VALUE="${JOB_TTL_HOURS:-24}" \
-  DEBUG_VALUE="${DEBUG:-false}" \
-  VERBOSE_VALUE="${VERBOSE:-false}" \
-  python3 - <<'PY' > "$WORKER_ENV_FILE"
-import json
-import os
-import sys
-
-data = {
-    "Variables": {
-        "JOBS_TABLE_NAME": os.environ.get("JOBS_TABLE_NAME_VALUE", ""),
-        "JOBS_QUEUE_URL": os.environ.get("JOBS_QUEUE_URL_VALUE", ""),
-        "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY_VALUE", ""),
-        "JOB_TTL_HOURS": os.environ.get("JOB_TTL_HOURS_VALUE", "24"),
-        "DEBUG": os.environ.get("DEBUG_VALUE", "false"),
-        "VERBOSE": os.environ.get("VERBOSE_VALUE", "false"),
-    }
-}
-json.dump(data, sys.stdout)
-PY
-}
-
-write_api_env_file
-write_worker_env_file
 
 echo "AWS Account ID: $AWS_ACCOUNT_ID"
 ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}"
@@ -150,6 +45,7 @@ aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS 
 echo "Pushing image to ECR..."
 docker push ${ECR_URI}:${IMAGE_TAG}
 
+ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/lambda-execution-role"
 echo "Ensuring Lambda function exists and uses packageType=Image..."
 
 PACKAGE_TYPE=$(aws lambda get-function --function-name ${FUNCTION_NAME} --region ${AWS_REGION} --query 'Configuration.PackageType' --output text 2>/dev/null || echo "None")
@@ -160,7 +56,6 @@ if [ "${PACKAGE_TYPE}" = "Image" ]; then
     --function-name ${FUNCTION_NAME} \
     --image-uri ${ECR_URI}:${IMAGE_TAG} \
     --region ${AWS_REGION} >/dev/null
-  aws lambda wait function-updated --function-name ${FUNCTION_NAME} --region ${AWS_REGION}
 else
   echo "Deleting existing non-Image Lambda (if any)..."
   aws lambda delete-function --function-name ${FUNCTION_NAME} --region ${AWS_REGION} 2>/dev/null || true
@@ -176,7 +71,18 @@ else
       --timeout 60 \
       --memory-size 1024 \
       --region ${AWS_REGION} \
-      --environment "file://${API_ENV_FILE}" >/dev/null
+      --environment Variables="{
+          \"MOCK_PINECONE\": \"${MOCK_PINECONE:-false}\",
+          \"PINECONE_API_KEY\": \"${PINECONE_API_KEY:-}\",
+          \"OPENAI_API_KEY\": \"${OPENAI_API_KEY:-}\",
+          \"VERBOSE\": \"${VERBOSE:-false}\",
+          \"CORS_ORIGINS\": \"${CORS_ORIGINS:-https://main.d1z0zksl0bfdg3.amplifyapp.com}\",
+          \"DEBUG\": \"${DEBUG:-false}\",
+          \"JOBS_TABLE_NAME\": \"${JOBS_TABLE_NAME:-}\",
+          \"JOBS_QUEUE_URL\": \"${JOBS_QUEUE_URL:-}\",
+          \"LICENSE_SUBSCRIPTIONS_TABLE_NAME\": \"${LICENSE_SUBSCRIPTIONS_TABLE_NAME:-}\",
+          \"LEMONSQUEEZY_WEBHOOK_SECRET\": \"${LEMONSQUEEZY_WEBHOOK_SECRET:-}\"
+      }" >/dev/null
 fi
 
 # Update API Lambda environment variables if function already exists
@@ -184,7 +90,18 @@ if [ "${PACKAGE_TYPE}" = "Image" ]; then
   echo "Updating API Lambda environment variables..."
   aws lambda update-function-configuration \
       --function-name ${FUNCTION_NAME} \
-      --environment "file://${API_ENV_FILE}" \
+      --environment Variables="{
+          \"MOCK_PINECONE\": \"${MOCK_PINECONE:-false}\",
+          \"PINECONE_API_KEY\": \"${PINECONE_API_KEY:-}\",
+          \"OPENAI_API_KEY\": \"${OPENAI_API_KEY:-}\",
+          \"VERBOSE\": \"${VERBOSE:-false}\",
+          \"CORS_ORIGINS\": \"${CORS_ORIGINS:-https://main.d1z0zksl0bfdg3.amplifyapp.com}\",
+          \"DEBUG\": \"${DEBUG:-false}\",
+          \"JOBS_TABLE_NAME\": \"${JOBS_TABLE_NAME:-}\",
+          \"JOBS_QUEUE_URL\": \"${JOBS_QUEUE_URL:-}\",
+          \"LICENSE_SUBSCRIPTIONS_TABLE_NAME\": \"${LICENSE_SUBSCRIPTIONS_TABLE_NAME:-}\",
+          \"LEMONSQUEEZY_WEBHOOK_SECRET\": \"${LEMONSQUEEZY_WEBHOOK_SECRET:-}\"
+      }" \
       --region ${AWS_REGION} >/dev/null
 fi
 
@@ -200,15 +117,22 @@ if [ "${WORKER_PACKAGE_TYPE}" = "Image" ]; then
     --function-name ${WORKER_FUNCTION_NAME} \
     --image-uri ${ECR_URI}:${IMAGE_TAG} \
     --region ${AWS_REGION} >/dev/null
-  aws lambda wait function-updated --function-name ${WORKER_FUNCTION_NAME} --region ${AWS_REGION}
+  aws lambda wait function-active --function-name ${WORKER_FUNCTION_NAME} --region ${AWS_REGION}
   
-  # Configure worker Lambda image command and environment variables
-  echo "Configuring worker Lambda image command and environment variables..."
+  # Configure worker Lambda handler and environment variables
+  echo "Configuring worker Lambda handler and environment variables..."
   aws lambda update-function-configuration \
     --function-name ${WORKER_FUNCTION_NAME} \
-    --image-config "Command=[\"app.worker.handler\"]" \
+    --handler app.worker.handler \
     --timeout 300 \
-    --environment "file://${WORKER_ENV_FILE}" \
+    --environment Variables="{
+        \"JOBS_TABLE_NAME\": \"${JOBS_TABLE_NAME:-}\",
+        \"JOBS_QUEUE_URL\": \"${JOBS_QUEUE_URL:-}\",
+        \"OPENAI_API_KEY\": \"${OPENAI_API_KEY:-}\",
+        \"JOB_TTL_HOURS\": \"${JOB_TTL_HOURS:-24}\",
+        \"DEBUG\": \"${DEBUG:-false}\",
+        \"VERBOSE\": \"${VERBOSE:-false}\"
+    }" \
     --region ${AWS_REGION} >/dev/null
   aws lambda wait function-updated --function-name ${WORKER_FUNCTION_NAME} --region ${AWS_REGION}
 else
@@ -218,11 +142,18 @@ else
     --package-type Image \
     --code ImageUri=${ECR_URI}:${IMAGE_TAG} \
     --role ${ROLE_ARN} \
-    --image-config "Command=[\"app.worker.handler\"]" \
+    --handler app.worker.handler \
     --timeout 300 \
     --memory-size 1024 \
     --region ${AWS_REGION} \
-    --environment "file://${WORKER_ENV_FILE}" >/dev/null
+    --environment Variables="{
+        \"JOBS_TABLE_NAME\": \"${JOBS_TABLE_NAME}\",
+        \"JOBS_QUEUE_URL\": \"${JOBS_QUEUE_URL:-}\",
+        \"OPENAI_API_KEY\": \"${OPENAI_API_KEY:-}\",
+        \"JOB_TTL_HOURS\": \"${JOB_TTL_HOURS:-24}\",
+        \"DEBUG\": \"${DEBUG:-false}\",
+        \"VERBOSE\": \"${VERBOSE:-false}\"
+    }" >/dev/null
   aws lambda wait function-active --function-name ${WORKER_FUNCTION_NAME} --region ${AWS_REGION}
   echo "✓ Worker Lambda created"
 fi
@@ -243,8 +174,6 @@ aws lambda add-permission \
 
 # Set up SQS resources and DLQ
 echo "Setting up SQS queue and Dead Letter Queue..."
-echo "Ensuring Lambda execution role has SQS permissions..."
-ensure_sqs_role_permissions
 QUEUE_URL=$(aws sqs get-queue-url --queue-name ${JOBS_QUEUE_NAME} --region ${AWS_REGION} --query 'QueueUrl' --output text 2>/dev/null || echo "")
 
 if [ -z "$QUEUE_URL" ]; then
@@ -327,10 +256,16 @@ fi
 # Update worker Lambda with correct queue URL if it changed
 if [ "${WORKER_PACKAGE_TYPE}" = "Image" ]; then
   echo "Updating worker Lambda with queue URL..."
-  write_worker_env_file
   aws lambda update-function-configuration \
     --function-name ${WORKER_FUNCTION_NAME} \
-    --environment "file://${WORKER_ENV_FILE}" \
+    --environment Variables="{
+        \"JOBS_TABLE_NAME\": \"${JOBS_TABLE_NAME}\",
+        \"JOBS_QUEUE_URL\": \"${JOBS_QUEUE_URL}\",
+        \"OPENAI_API_KEY\": \"${OPENAI_API_KEY:-}\",
+        \"JOB_TTL_HOURS\": \"${JOB_TTL_HOURS:-24}\",
+        \"DEBUG\": \"${DEBUG:-false}\",
+        \"VERBOSE\": \"${VERBOSE:-false}\"
+    }" \
     --region ${AWS_REGION} >/dev/null
 fi
 

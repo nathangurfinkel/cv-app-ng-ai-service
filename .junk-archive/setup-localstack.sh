@@ -5,53 +5,16 @@ set -e
 
 LOCALSTACK_ENDPOINT="${LOCALSTACK_ENDPOINT:-http://localhost:4566}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
-HEALTHCHECK_URL="${LOCALSTACK_ENDPOINT}/_localstack/health"
-MAX_HEALTHCHECK_ATTEMPTS="${MAX_HEALTHCHECK_ATTEMPTS:-30}"
-HEALTHCHECK_SLEEP_SECONDS="${HEALTHCHECK_SLEEP_SECONDS:-2}"
-AWS_RETRY_ATTEMPTS="${AWS_RETRY_ATTEMPTS:-5}"
-AWS_RETRY_SLEEP_SECONDS="${AWS_RETRY_SLEEP_SECONDS:-2}"
-
-wait_for_localstack() {
-  local attempt=1
-  while [ "$attempt" -le "$MAX_HEALTHCHECK_ATTEMPTS" ]; do
-    if curl -s -f --max-time 2 "$HEALTHCHECK_URL" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep "$HEALTHCHECK_SLEEP_SECONDS"
-    attempt=$((attempt + 1))
-  done
-  return 1
-}
-
-retry_aws() {
-  local attempt=1
-  while [ "$attempt" -le "$AWS_RETRY_ATTEMPTS" ]; do
-    if aws "$@"; then
-      return 0
-    fi
-    sleep "$AWS_RETRY_SLEEP_SECONDS"
-    attempt=$((attempt + 1))
-  done
-  return 1
-}
 
 echo "Setting up LocalStack resources..."
 echo "Endpoint: $LOCALSTACK_ENDPOINT"
 echo "Region: $AWS_REGION"
 echo ""
 
-echo "Waiting for LocalStack to be ready..."
-if ! wait_for_localstack; then
-  echo "ERROR: LocalStack is not responding at ${HEALTHCHECK_URL}"
-  echo "Make sure LocalStack is running before continuing."
-  exit 1
-fi
-echo "✓ LocalStack is ready"
-
 # DynamoDB Table for Jobs
 TABLE_NAME="cv-builder-jobs"
 echo "Creating DynamoDB table: $TABLE_NAME"
-retry_aws dynamodb create-table \
+aws dynamodb create-table \
   --endpoint-url "$LOCALSTACK_ENDPOINT" \
   --region "$AWS_REGION" \
   --table-name "$TABLE_NAME" \
@@ -68,14 +31,14 @@ echo ""
 # SQS Queue for Jobs
 QUEUE_NAME="cv-builder-jobs-queue"
 echo "Creating SQS queue: $QUEUE_NAME"
-QUEUE_URL_RAW=$(retry_aws sqs create-queue \
+QUEUE_URL_RAW=$(aws sqs create-queue \
   --endpoint-url "$LOCALSTACK_ENDPOINT" \
   --region "$AWS_REGION" \
   --queue-name "$QUEUE_NAME" \
   --attributes VisibilityTimeout=300 \
   --no-cli-pager \
   --query 'QueueUrl' \
-  --output text 2>/dev/null || retry_aws sqs get-queue-url \
+  --output text 2>/dev/null || aws sqs get-queue-url \
     --endpoint-url "$LOCALSTACK_ENDPOINT" \
     --region "$AWS_REGION" \
     --queue-name "$QUEUE_NAME" \
@@ -94,7 +57,7 @@ echo ""
 # DynamoDB Table for License Subscriptions
 LICENSE_TABLE_NAME="cv-builder-license-subscriptions"
 echo "Creating DynamoDB table: $LICENSE_TABLE_NAME"
-retry_aws dynamodb create-table \
+aws dynamodb create-table \
   --endpoint-url "$LOCALSTACK_ENDPOINT" \
   --region "$AWS_REGION" \
   --table-name "$LICENSE_TABLE_NAME" \

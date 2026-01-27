@@ -181,13 +181,29 @@ class AIService:
         Returns:
             Structured CV data as a dictionary
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
+            logger.info("[AI_SERVICE] Starting structured CV data extraction", extra={
+                "cv_text_length": len(cv_text),
+                "cv_text_preview": cv_text[:300] + ("..." if len(cv_text) > 300 else ""),
+                "has_job_description": bool(job_description),
+                "job_description_length": len(job_description) if job_description else 0,
+                "timestamp": __import__("datetime").datetime.now().isoformat()
+            })
+            
             llm = self._get_llm_client()
             system_prompt = "You are an expert at extracting structured data from CVs. You also correct grammar, spelling, and punctuation mistakes in the extracted content while preserving the original meaning and professional tone. Always return valid JSON."
             
             # Build prompt conditionally based on whether job_description is provided
             # Check if job_description exists and is not empty after stripping
             has_job_description = bool(job_description and job_description.strip())
+            
+            logger.info("[AI_SERVICE] Calling LLM for extraction", extra={
+                "has_job_description": has_job_description,
+                "prompt_length": len(system_prompt) + len(cv_text) + (len(job_description) if job_description else 0)
+            })
             
             if has_job_description:
                 user_prompt = f"""
@@ -266,9 +282,19 @@ class AIService:
                     }}
                 }}
                 
-                Important: Extract the target job title and company name from the job description provided above. 
-                Look for patterns like "Job Title at Company", "Job Title - Company", "Company - Job Title", etc.
-                If the job description doesn't clearly contain a job title or company name, use empty strings.
+                EXTRACTION GUIDELINES:
+                1. Experience achievements: Extract ALL bullet points, list items, or achievements for each job. 
+                   If the CV uses bullet points (•, -, *, etc.) or numbered lists, extract each one as a separate item in the achievements array.
+                   Do not combine multiple bullet points into a single achievement. Preserve all details from the original CV.
+                2. Education degree: If the CV says "B.Sc. in Computer Science", extract:
+                   - degree: "B.Sc." (just the degree type/level)
+                   - field: "Computer Science" (the field of study)
+                   Do NOT put "B.Sc. in Computer Science" in the degree field to avoid duplication.
+                3. Phone numbers: Preserve all digits exactly as written, including country codes and formatting characters.
+                4. Optional fields (website, linkedin, github): Use empty string "" if not provided in the CV, do NOT make up values.
+                5. Target job: Extract the target job title and company name from the job description provided above. 
+                   Look for patterns like "Job Title at Company", "Job Title - Company", "Company - Job Title", etc.
+                   If the job description doesn't clearly contain a job title or company name, use empty strings.
                 """
             else:
                 user_prompt = f"""
@@ -342,6 +368,17 @@ class AIService:
                         "company": ""
                     }}
                 }}
+                
+                EXTRACTION GUIDELINES:
+                1. Experience achievements: Extract ALL bullet points, list items, or achievements for each job. 
+                   If the CV uses bullet points (•, -, *, etc.) or numbered lists, extract each one as a separate item in the achievements array.
+                   Do not combine multiple bullet points into a single achievement. Preserve all details from the original CV.
+                2. Education degree: If the CV says "B.Sc. in Computer Science", extract:
+                   - degree: "B.Sc." (just the degree type/level)
+                   - field: "Computer Science" (the field of study)
+                   Do NOT put "B.Sc. in Computer Science" in the degree field to avoid duplication.
+                3. Phone numbers: Preserve all digits exactly as written, including country codes and formatting characters.
+                4. Optional fields (website, linkedin, github): Use empty string "" if not provided in the CV, do NOT make up values.
                 """
             
             user_prompt += """
@@ -363,6 +400,11 @@ class AIService:
                 temperature=0.3
             )
             
+            logger.info("[AI_SERVICE] Received LLM response", extra={
+                "response_length": len(content),
+                "response_preview": content[:500] + ("..." if len(content) > 500 else "")
+            })
+            
             # Parse the JSON response
             import json
             content = content.strip()
@@ -373,10 +415,33 @@ class AIService:
             if content.endswith("```"):
                 content = content[:-3]
             
-            return json.loads(content)
+            parsed_data = json.loads(content)
+            
+            logger.info("[AI_SERVICE] Parsed JSON successfully", extra={
+                "has_personal": "personal" in parsed_data,
+                "personal_name": parsed_data.get("personal", {}).get("name"),
+                "experience_count": len(parsed_data.get("experience", [])),
+                "education_count": len(parsed_data.get("education", [])),
+                "experience_details": [
+                    {
+                        "role": exp.get("role"),
+                        "company": exp.get("company"),
+                        "achievements_count": len(exp.get("achievements", [])),
+                        "description_length": len(exp.get("description", "")),
+                        "has_description": bool(exp.get("description")),
+                        "has_achievements": len(exp.get("achievements", [])) > 0
+                    }
+                    for exp in parsed_data.get("experience", [])[:3]  # First 3 experiences
+                ]
+            })
+            
+            return parsed_data
             
         except Exception as e:
-            print(f"Error extracting structured CV data: {e}")
+            logger.error("[AI_SERVICE] Error extracting structured CV data", extra={
+                "error": str(e),
+                "error_type": type(e).__name__
+            }, exc_info=True)
             raise Exception(f"Failed to extract CV data: {str(e)}")
     
     async def generate_cv_from_file(self, file_content: str, job_description: str) -> str:
@@ -675,22 +740,30 @@ class AIService:
                 "reasoning": f"Error: {str(e)}"
             }
 
-    async def rephrase_cv_section(self, section_content: str, section_type: str, job_description: str, instruction_type: str = 'default') -> str:
+    async def rephrase_cv_section(
+        self,
+        section_content: str,
+        section_type: str,
+        job_description: str,
+        instruction_type: str = 'default',
+        custom_instruction: str | None = None,
+    ) -> str:
         """
         Rephrase a specific CV section to better fit the target job.
-        
+
         Args:
             section_content: The content of the CV section to rephrase
             section_type: The type of section (e.g., 'professional_summary', 'experience', 'project')
             job_description: The job description to tailor the content for
-            instruction_type: Type of rephrase instruction ('grammar', 'shorten', 'formal', 'casual', 'default')
-            
+            instruction_type: Type of rephrase instruction ('grammar', 'shorten', 'formal', 'casual', 'expand', 'custom', 'default')
+            custom_instruction: When instruction_type is 'custom', this is the user's free-form instruction.
+
         Returns:
             Rephrased section content
         """
         try:
             llm = self._get_llm_client()
-            
+
             # Define section-specific prompts with strict technical editor persona (anti-fluff protocol)
             strict_editor_base = """You are a Strict Technical Editor for Senior Engineering Resumes.
 
@@ -709,11 +782,13 @@ If the user asks for 'More Formal', interpret that as 'More Precise', not 'More 
             instruction_enhancements = {
                 'grammar': "Act as a Proofreader. Fix typos and syntax ONLY. Do not change word choice.",
                 'shorten': "Act as a Ruthless Editor. Cut word count by 30%.",
+                'expand': "Expand the text with more detail, examples, or impact while staying factual.",
                 'formal': "Make the tone professional and precise, but NOT flowery.",
                 'casual': "Make the tone more conversational while maintaining professionalism.",
-                'default': ""  # Use base anti-fluff protocol
+                'custom': "Follow the user's custom instruction precisely.",
+                'default': "",  # Use base anti-fluff protocol
             }
-            
+
             instruction_append = instruction_enhancements.get(instruction_type, "")
             if instruction_append:
                 strict_editor_base = f"{strict_editor_base}\n\n{instruction_append}"
@@ -737,6 +812,10 @@ If the user asks for 'More Formal', interpret that as 'More Precise', not 'More 
                 instruction_text = "Fix typos and syntax errors only. Do not change word choice or meaning."
             elif instruction_type == 'shorten':
                 instruction_text = "Cut word count by approximately 30% while preserving all essential information."
+            elif instruction_type == 'expand':
+                instruction_text = "Expand the text with more detail, concrete examples, or quantified impact. Stay factual and do not invent information."
+            elif instruction_type == 'custom' and custom_instruction:
+                instruction_text = custom_instruction.strip()
             elif instruction_type == 'formal':
                 instruction_text = "Make the tone professional and precise, but NOT flowery. Use formal language without corporate buzzwords."
             elif instruction_type == 'casual':
@@ -885,6 +964,132 @@ Return only the rewritten content, no additional text or explanations.
         except Exception as e:
             print(f"Error elaborating with keyword: {e}")
             raise Exception(f"Failed to elaborate with keyword: {str(e)}")
+
+    async def generate_slight_improvement(
+        self, 
+        current_description: str,
+        current_achievements: list[str],
+        user_responses: list[str],
+        improvements_feedback: list[str],
+        job_description: str,
+        target_section: str = "experience",
+        user_chosen_type: str | None = None
+    ) -> Dict[str, Any]:
+        """
+        Generate a minimal, targeted improvement (either a bullet point or sentence extension).
+        
+        Args:
+            current_description: Current description text
+            current_achievements: Current achievement bullets
+            user_responses: User's answers to improvement questions
+            improvements_feedback: Feedback suggestions from persona evaluation
+            job_description: The job description for context
+            target_section: The section being improved
+            user_chosen_type: User's explicit choice of "bullet" or "sentence" (optional)
+            
+        Returns:
+            Dict with structured improvement: { type: "bullet" | "sentence", content: string }
+        """
+        try:
+            llm = self._get_llm_client()
+            
+            # Adjust prompt based on user's choice
+            if user_chosen_type == "bullet":
+                type_instruction = "Generate ONE new bullet point for the achievements section."
+                format_instruction = 'Return ONLY valid JSON: {"type": "bullet", "content": "..."}'
+            elif user_chosen_type == "sentence":
+                type_instruction = "Generate ONE sentence to extend the job description."
+                format_instruction = 'Return ONLY valid JSON: {"type": "sentence", "content": "..."}'
+            else:
+                type_instruction = """Generate either:
+1. ONE new bullet point for the achievements section, OR
+2. ONE sentence to extend the description"""
+                format_instruction = 'Return ONLY valid JSON in this exact format: {"type": "bullet", "content": "..."} or {"type": "sentence", "content": "..."}'
+            
+            system_prompt = f"""You are a Resume Improvement Assistant. Your task is to generate MINIMAL, targeted improvements.
+{type_instruction}
+
+Do not rewrite the entire section. Only add one small improvement that incorporates the user's experience.
+{format_instruction}"""
+            
+            # Use compressed job requirements instead of full job description
+            key_requirements = await self.summarize_job_requirements(job_description)
+            
+            # Format current content
+            current_content_display = f"""Current Description:
+{current_description if current_description else "(empty)"}
+
+Current Achievements:
+{chr(10).join(f"- {a}" for a in current_achievements) if current_achievements else "(none)"}"""
+            
+            user_context = "\n".join(f"{i+1}. {resp}" for i, resp in enumerate(user_responses) if resp.strip())
+            feedback_context = "\n".join(f"- {imp}" for imp in improvements_feedback)
+            
+            user_prompt = f"""
+Feedback from Evaluation:
+{feedback_context}
+
+Key Job Requirements:
+{key_requirements}
+
+{current_content_display}
+
+User's Additional Experience/Context:
+{user_context}
+
+Task: Based on the user's responses and feedback, generate ONE minimal improvement{f' as a {user_chosen_type}' if user_chosen_type else ''}:
+{'' if user_chosen_type else '- If the user described a relevant achievement or accomplishment, generate a bullet point'}
+{'' if user_chosen_type else '- If the user provided context that extends their role description, generate a sentence extension'}
+{'' if user_chosen_type else ''}
+Guidelines:
+- Keep it concise (1 sentence for sentence extensions, 1 bullet for achievements)
+- Use action verbs and quantifiable results where possible
+- Only include facts from the user's responses
+- Match the professional tone of existing content
+{'' if user_chosen_type else '- If current achievements exist and the user described accomplishments, prefer a bullet'}
+{'' if user_chosen_type else '- If no achievements exist or user described responsibilities, prefer a sentence'}
+
+{format_instruction}
+Do not include any other text or explanations."""
+            
+            response = await llm.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=200,
+                temperature=0.7
+            )
+            
+            # Parse JSON response
+            import json
+            response_cleaned = response.strip()
+            
+            # Try to extract JSON if response has extra text
+            if not response_cleaned.startswith('{'):
+                start_idx = response_cleaned.find('{')
+                end_idx = response_cleaned.rfind('}')
+                if start_idx != -1 and end_idx != -1:
+                    response_cleaned = response_cleaned[start_idx:end_idx+1]
+            
+            result = json.loads(response_cleaned)
+            
+            # Validate structure
+            if 'type' not in result or 'content' not in result:
+                raise ValueError("Invalid JSON structure from LLM")
+            
+            if result['type'] not in ['bullet', 'sentence']:
+                raise ValueError(f"Invalid type: {result['type']}")
+            
+            return result
+            
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON from LLM: {e}, response: {response}")
+            # Fallback: try to extract content and guess type
+            content = response.strip().strip('"\'')
+            improvement_type = 'bullet' if len(current_achievements) > 0 else 'sentence'
+            return {"type": improvement_type, "content": content}
+        except Exception as e:
+            print(f"Error generating slight improvement: {e}")
+            raise Exception(f"Failed to generate slight improvement: {str(e)}")
 
     async def recommend_template(self, job_description: str, cv_data: Dict[str, Any]) -> Dict[str, Any]:
         """

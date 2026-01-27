@@ -127,13 +127,60 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             repo.update_status(job_id=job_id, status=JobStatus.processing)
 
             if job_type == JobType.extract.value:
+                import logging
+                worker_logger = logging.getLogger(__name__)
+                
                 cv_text = payload.get("cv_text", "")
                 job_description = payload.get("job_description", "")
+                
+                worker_logger.info("[WORKER] Processing extract job", extra={
+                    "job_id": job_id,
+                    "cv_text_length": len(cv_text),
+                    "cv_text_preview": cv_text[:300] + ("..." if len(cv_text) > 300 else ""),
+                    "has_job_description": bool(job_description),
+                    "job_description_length": len(job_description) if job_description else 0
+                })
+                
                 # Pass None if job_description is empty string
                 job_description_or_none = job_description if job_description and job_description.strip() else None
+                
+                worker_logger.info("[WORKER] Calling AI extraction")
                 raw_ai_data = _run_async(ai.extract_structured_cv_data(cv_text, job_description_or_none))  # type: ignore[call-arg]
+                
+                worker_logger.info("[WORKER] AI extraction complete", extra={
+                    "has_personal": "personal" in raw_ai_data,
+                    "experience_count": len(raw_ai_data.get("experience", [])),
+                    "education_count": len(raw_ai_data.get("education", [])),
+                    "raw_experience_sample": raw_ai_data.get("experience", [])[:2] if raw_ai_data.get("experience") else []
+                })
+                
+                worker_logger.info("[WORKER] Transforming AI data to CVData")
                 cv_data = transformer.transform_ai_data_to_cv_data(raw_ai_data)
+                
+                worker_logger.info("[WORKER] Transformation complete", extra={
+                    "personal_name": cv_data.personal.name if cv_data.personal else None,
+                    "experience_count": len(cv_data.experience),
+                    "education_count": len(cv_data.education),
+                    "experience_details": [
+                        {
+                            "role": exp.role,
+                            "company": exp.company,
+                            "achievements_count": len(exp.achievements) if exp.achievements else 0,
+                            "description_length": len(exp.description) if exp.description else 0,
+                            "has_description": bool(exp.description),
+                            "has_achievements": len(exp.achievements) > 0 if exp.achievements else False
+                        }
+                        for exp in cv_data.experience[:3]
+                    ]
+                })
+                
                 structured_content = transformer.cv_data_to_dict(cv_data)
+                
+                worker_logger.info("[WORKER] Final structured content ready", extra={
+                    "result_keys": list(structured_content.keys()),
+                    "experience_count_in_result": len(structured_content.get("experience", []))
+                })
+                
                 repo.update_status(job_id=job_id, status=JobStatus.succeeded, result=structured_content)
             elif job_type == JobType.tailor.value:
                 user_cv_text = validate_cv_text(payload.get("user_cv_text", ""))
@@ -159,7 +206,12 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 section_type = payload.get("section_type", "")
                 jd = validate_job_description(payload.get("job_description", ""))
                 instruction_type = payload.get("instruction_type", "default")
-                rephrased_content = _run_async(ai.rephrase_cv_section(section_content, section_type, jd, instruction_type))
+                custom_instruction = payload.get("custom_instruction")
+                rephrased_content = _run_async(
+                    ai.rephrase_cv_section(
+                        section_content, section_type, jd, instruction_type, custom_instruction
+                    )
+                )
                 repo.update_status(
                     job_id=job_id,
                     status=JobStatus.succeeded,
@@ -208,6 +260,76 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     status=JobStatus.succeeded,
                     result={
                         "rephrased_content": rephrased_content,
+                    },
+                )
+            elif job_type == JobType.improve_from_feedback.value:
+                jd = validate_job_description(payload.get("job_description", ""))
+                section_context = payload.get("section_context", "")
+                target_section = payload.get("target_section", "experience")
+                user_responses = payload.get("user_responses", [])
+                persona_feedback = payload.get("persona_feedback", {})
+                cv_json = payload.get("cv_json", {})
+                user_chosen_types = payload.get("user_chosen_types", {})
+                target_experience_indices = payload.get("target_experience_indices", [0])
+                
+                # Use first selected experience for context generation
+                target_experience_index = target_experience_indices[0] if target_experience_indices else 0
+                
+                # Get the type for the first experience (for AI generation context)
+                first_exp_type = user_chosen_types.get(str(target_experience_index)) if user_chosen_types else None
+                
+                # Extract improvements feedback
+                improvements = persona_feedback.get("improvements", [])
+                
+                # Parse current description and achievements from section_context or cv_json
+                current_description = ""
+                current_achievements = []
+                
+                if target_section == "experience":
+                    # Try to get from cv_json using first target_experience_index for context
+                    experience_list = cv_json.get("experience", [])
+                    if experience_list and len(experience_list) > target_experience_index:
+                        target_exp = experience_list[target_experience_index]
+                        current_description = target_exp.get("description", "")
+                        current_achievements = target_exp.get("achievements", [])
+                    else:
+                        # Fallback: parse from section_context
+                        current_description = section_context
+                        current_achievements = []
+                elif target_section == "professional_summary":
+                    current_description = section_context
+                    current_achievements = []
+                elif target_section == "skills":
+                    current_description = section_context
+                    current_achievements = []
+                
+                # Use new slight improvement method with user's chosen type for first experience
+                improvement_result = _run_async(
+                    ai.generate_slight_improvement(
+                        current_description=current_description,
+                        current_achievements=current_achievements,
+                        user_responses=user_responses,
+                        improvements_feedback=improvements,
+                        job_description=jd,
+                        target_section=target_section,
+                        user_chosen_type=first_exp_type
+                    )
+                )
+                
+                # Return structured result with both old and new format for compatibility
+                improvement_type = first_exp_type if first_exp_type else improvement_result.get("type", "sentence")
+                improvement_content = improvement_result.get("content", "")
+                
+                repo.update_status(
+                    job_id=job_id,
+                    status=JobStatus.succeeded,
+                    result={
+                        "improved_content": improvement_content,
+                        "suggested_section": target_section,
+                        "improvement_type": improvement_type,
+                        "improvement_content": improvement_content,
+                        "target_indices": target_experience_indices,
+                        "user_chosen_types": user_chosen_types,
                     },
                 )
             else:

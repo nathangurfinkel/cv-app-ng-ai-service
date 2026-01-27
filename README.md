@@ -11,11 +11,18 @@ This service handles all AI-related operations for the CV Builder application:
 
 ## Architecture
 
-- **Platform**: AWS Lambda
+- **Platform**: AWS Lambda (dual-Lambda architecture: API + Worker)
 - **Framework**: FastAPI with Mangum adapter
-- **AI Provider**: OpenAI
+- **AI Provider**: OpenAI / Gemini (BYOK support)
 - **Vector Database**: ChromaDB/Pinecone
 - **Evaluation**: RAGAS framework
+- **Async Jobs**: DynamoDB + SQS
+
+For detailed architecture documentation, see:
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System architecture and data flow
+- [LOCALSTACK_SETUP.md](docs/LOCALSTACK_SETUP.md) - Local development setup
+- [CLOUD_DEPLOYMENT.md](docs/CLOUD_DEPLOYMENT.md) - Production deployment guide
+- [SETUP_COMPARISON.md](docs/SETUP_COMPARISON.md) - Dev vs Production comparison
 
 ## Environment Setup
 
@@ -78,29 +85,41 @@ curl http://localhost:8000/health
 
 The async jobs endpoints (`/ai/jobs/extract`, `/ai/jobs/tailor`, etc.) require DynamoDB and SQS. Use LocalStack to run these services locally:
 
+#### Quick Start (Recommended)
+
+Use the unified development script to start everything at once:
+
+```bash
+./dev.sh
+```
+
+This script automatically:
+- Starts LocalStack (if not running)
+- Sets up LocalStack resources (DynamoDB tables, SQS queue)
+- Starts the API server (uvicorn)
+- Starts the worker script
+- Handles cleanup on Ctrl+C
+
+**To stop**: Press `Ctrl+C` in the terminal running `dev.sh`
+
+#### Manual Setup (Alternative)
+
+If you prefer to run services manually:
+
 1. **Start LocalStack**:
 ```bash
 docker compose -f docker-compose.localstack.yml up -d
 ```
 
-2. **Wait for LocalStack to be ready** (about 10-15 seconds):
+2. **Set up LocalStack resources**:
 ```bash
-# Check health
-curl http://localhost:4566/_localstack/health
-```
-
-3. **Set up LocalStack resources** (DynamoDB table and SQS queue):
-```bash
-# Make sure AWS CLI is installed and configured (credentials can be dummy for LocalStack)
 export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
 export AWS_DEFAULT_REGION=us-east-1
-
-# Run setup script
 ./scripts/setup-localstack.sh
 ```
 
-4. **Update your `.env` file** with the values printed by the setup script:
+3. **Update your `.env` file** with the values printed by the setup script:
 ```env
 JOBS_TABLE_NAME=cv-builder-jobs
 JOBS_QUEUE_URL=http://localhost:4566/000000000000/cv-builder-jobs-queue
@@ -108,25 +127,15 @@ AWS_ENDPOINT_URL=http://localhost:4566
 AWS_DEFAULT_REGION=us-east-1
 ```
 
-5. **Restart your application** to load the new environment variables:
+4. **Start API server** (terminal 1):
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-6. **Test async jobs endpoint**:
+5. **Start worker** (terminal 2):
 ```bash
-curl -X POST http://localhost:8000/ai/jobs/extract \
-  -H "Content-Type: application/json" \
-  -d '{"cv_text": "Your CV text here..."}'
-```
-
-6. **Start the worker** to process jobs from the SQS queue (in a separate terminal):
-```bash
-# Make sure your .env file has the LocalStack configuration
 python3 scripts/process-localstack-queue.py
 ```
-
-This script will continuously poll the SQS queue and process jobs. Keep it running while testing async job endpoints.
 
 **To stop LocalStack**:
 ```bash
@@ -216,13 +225,21 @@ aws lambda update-function-configuration \
 - **Account ID**: Retrieved via AWS CLI (`aws sts get-caller-identity`)
 - **Region**: `eu-north-1` (Stockholm)
 
-#### Lambda Function
-- **Function Name**: cv-builder-ai-service
-- **Runtime**: Python 3.13
+#### Lambda Functions
+
+**API Lambda** (`cv-builder-ai-service`):
+- **Runtime**: Python 3.13 (container image)
 - **Handler**: `app.main.handler`
 - **Memory**: 1024 MB
-- **Timeout**: 30 seconds
-- **Package Type**: Zip or Container Image
+- **Timeout**: 60 seconds
+- **Package Type**: Container Image
+
+**Worker Lambda** (`cv-builder-ai-worker`):
+- **Runtime**: Python 3.13 (container image)
+- **Handler**: `app.worker.handler`
+- **Memory**: 1024 MB
+- **Timeout**: 300 seconds (5 minutes, matches SQS visibility timeout)
+- **Package Type**: Container Image
 
 #### API Gateway
 - **Type**: HTTP API (AWS_PROXY integration)
@@ -479,6 +496,14 @@ curl -X POST https://api.yourdomain.com/ai/cv/tailor \
 
 ## Additional Resources
 
+### Documentation
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System architecture, entry points, and data flow
+- [LOCALSTACK_SETUP.md](docs/LOCALSTACK_SETUP.md) - Complete LocalStack setup guide
+- [CLOUD_DEPLOYMENT.md](docs/CLOUD_DEPLOYMENT.md) - Production deployment guide
+- [SETUP_COMPARISON.md](docs/SETUP_COMPARISON.md) - LocalStack vs Cloud comparison
+- [DEAD_CODE_AUDIT.md](docs/DEAD_CODE_AUDIT.md) - Unused code and configuration audit
+
+### External Resources
 - [AWS Lambda Python](https://docs.aws.amazon.com/lambda/latest/dg/lambda-python.html)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
 - [OpenAI API Documentation](https://platform.openai.com/docs)

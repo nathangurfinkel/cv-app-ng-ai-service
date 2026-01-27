@@ -41,16 +41,17 @@ class Settings:
     PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY", "")
     PINECONE_INDEX_NAME: str = "cv-architect-index"
     
-    # Template Configuration
-    TEMPLATES_DIR: str = "./templates"
+    # Lambda Configuration (check first for endpoint URL safety)
+    IS_LAMBDA: bool = os.getenv("AWS_LAMBDA_FUNCTION_NAME") is not None
     
     # AWS Configuration
     AWS_REGION: str = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-    AWS_ENDPOINT_URL: str = os.getenv("AWS_ENDPOINT_URL", "")  # For LocalStack: http://localhost:4566
-    S3_BUCKET_NAME: str = os.getenv("S3_BUCKET", "")
-    
-    # Lambda Configuration
-    IS_LAMBDA: bool = os.getenv("AWS_LAMBDA_FUNCTION_NAME") is not None
+    # Force empty endpoint URL in production/Lambda to prevent accidental LocalStack usage
+    _endpoint_url_raw = os.getenv("AWS_ENDPOINT_URL", "")
+    if ENVIRONMENT == "production" or IS_LAMBDA:
+        AWS_ENDPOINT_URL: str = ""
+    else:
+        AWS_ENDPOINT_URL: str = _endpoint_url_raw
     
     # File Upload Configuration
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB

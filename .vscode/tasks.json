@@ -2,15 +2,22 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "AI: Dev",
+      "label": "AI: Dev (Full Stack)",
       "type": "shell",
-      "command": "python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+      "command": "PATH=/Applications/Docker.app/Contents/Resources/bin:$PATH bash ./dev.sh",
       "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
       "problemMatcher": []
     },
     {
-      "label": "AI: Deploy",
+      "label": "AI: Stop Local Dev",
+      "type": "shell",
+      "command": "bash -c '/Applications/Docker.app/Contents/Resources/bin/docker compose -f docker-compose.localstack.yml down || true; pkill -f \"uvicorn app.main:app\" || true; pkill -f process-localstack-queue.py || true'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "AI: Deploy to Cloud",
       "type": "shell",
       "command": "bash ./deploy-container.sh",
       "options": { "cwd": "${workspaceFolder}" },

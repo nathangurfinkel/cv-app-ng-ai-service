@@ -1,0 +1,42 @@
+---
+description: Rule for placing worklogs, analysis documents, and temporary files in .junk-archive
+globs: 
+alwaysApply: true
+---
+
+# Worklog and Analysis File Placement
+
+**Always place worklogs, analysis documents, audit files, and temporary documentation in `.junk-archive/`:**
+
+## Files that belong in `.junk-archive/`
+
+- **Worklogs** (e.g., `IMPLEMENTATION_SUMMARY.md`, `BUILD_SUMMARY.md`, `QUICK_START.md`)
+- **Analysis documents** (e.g., `*_AUDIT.md`, `*_REVIEW.md`, `*_ANALYSIS.md`, `*_COST_AUDIT.md`)
+- **Testing guides and cheatsheets** (e.g., `*_TESTING_*.md`, `HOW_TO_*.md`, `*_CHEATSHEET.md`)
+- **Temporary documentation** (e.g., setup guides that are not permanent, deployment checklists)
+- **Architecture blueprints and strategy docs** that are outdated or superseded
+- **Shell scripts** (`.sh` files) that are one-off utilities or temporary helpers
+
+## Files that should NOT be archived
+
+- `README.md` files (main project documentation)
+- `docs/ARCHITECTURE.md`, `docs/CLOUD_DEPLOYMENT.md`, `docs/LOCALSTACK_SETUP.md` (active operational documentation)
+- Files in `docs/` that are part of the official documentation structure
+- Production scripts that are actively used in CI/CD or deployment
+
+## When creating new worklogs or analysis files
+
+1. **Create them directly in `.junk-archive/` from the start**
+2. If you create them in the root by mistake, **move them to `.junk-archive/` immediately**
+3. Use descriptive names that indicate their purpose (e.g., `FEATURE_X_ANALYSIS.md`, `BUG_Y_WORKLOG.md`)
+
+## Examples
+
+**Good:**
+- `.junk-archive/AI_TOKEN_COST_AUDIT.md`
+- `.junk-archive/DEAD_CODE_AUDIT.md`
+- `.junk-archive/deploy-container.sh` (if it's a one-off utility)
+
+**Bad:**
+- `AI_TOKEN_COST_AUDIT.md` (in root)
+- `docs/ARCHITECTURE.md` (should stay in docs/)
