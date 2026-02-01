@@ -793,7 +793,17 @@ If the user asks for 'More Formal', interpret that as 'More Precise', not 'More 
             if instruction_append:
                 strict_editor_base = f"{strict_editor_base}\n\n{instruction_append}"
 
-            section_prompts = {
+            # Style-only prompts: improve clarity and impact without job-description alignment (Option A from audit)
+            style_only_section_prompts = {
+                'professional_summary': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this professional summary while preserving the author's voice and meaning. Do not add skills or responsibilities that are not supported by the source text.",
+                'experience': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this work experience description while preserving the author's voice and meaning. Do not add skills or responsibilities that are not supported by the source text.",
+                'project': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this project description while preserving the author's voice and meaning. Do not add skills or responsibilities that are not supported by the source text.",
+                'education': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this education section while preserving the author's voice and meaning. Do not add skills or responsibilities that are not supported by the source text.",
+                'skills': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase and reorganize these skills for clarity. Do not add skills that are not in the source text.",
+                'certification': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this certification description while preserving the author's voice and meaning. Do not add skills or responsibilities that are not supported by the source text."
+            }
+            # Job-aligned prompts: used only for non-default instruction types when we pass key_requirements
+            job_aligned_section_prompts = {
                 'professional_summary': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this professional summary to better align with the target job requirements while maintaining authenticity. Do not add skills or responsibilities that are not supported by the source text.",
                 'experience': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this work experience description to better highlight relevant skills and achievements for the target job. Do not add skills or responsibilities that are not supported by the source text.",
                 'project': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this project description to better showcase relevant technical skills and impact for the target job. Do not add skills or responsibilities that are not supported by the source text.",
@@ -801,12 +811,16 @@ If the user asks for 'More Formal', interpret that as 'More Precise', not 'More 
                 'skills': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase and reorganize these skills to better match the target job requirements and highlight the most relevant ones first. Do not add skills that are not in the source text.",
                 'certification': f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this certification description to better emphasize its relevance to the target job. Do not add skills or responsibilities that are not supported by the source text."
             }
-            
-            base_prompt = section_prompts.get(section_type, f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this CV section to better align with the target job requirements. Do not add skills or responsibilities that are not supported by the source text.")
-            
-            # Use compressed job requirements instead of full job description
-            key_requirements = await self.summarize_job_requirements(job_description)
-            
+
+            is_default_rephrase = instruction_type == 'default'
+            if is_default_rephrase:
+                base_prompt = style_only_section_prompts.get(section_type, f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this CV section while preserving the author's voice and meaning. Do not add skills or responsibilities that are not supported by the source text.")
+            else:
+                base_prompt = job_aligned_section_prompts.get(section_type, f"{strict_editor_base}\n\nYour goal is to improve clarity and impact without inventing facts. Rephrase this CV section to better align with the target job requirements. Do not add skills or responsibilities that are not supported by the source text.")
+
+            # For default rephrase (style-only): do not inject job requirements. For other types, use compressed JD.
+            key_requirements = None if is_default_rephrase else await self.summarize_job_requirements(job_description)
+
             # Build instruction-specific user prompt
             if instruction_type == 'grammar':
                 instruction_text = "Fix typos and syntax errors only. Do not change word choice or meaning."
@@ -820,27 +834,37 @@ If the user asks for 'More Formal', interpret that as 'More Precise', not 'More 
                 instruction_text = "Make the tone professional and precise, but NOT flowery. Use formal language without corporate buzzwords."
             elif instruction_type == 'casual':
                 instruction_text = "Make the tone more conversational while maintaining professionalism and clarity."
-            else:  # default
-                instruction_text = """1. Rephrase the content to better match the job requirements
+            else:  # default: style only, no job alignment or JD keywords
+                instruction_text = """1. Improve clarity and impact of the existing content; preserve the author's voice and meaning
             2. Use simple, direct action verbs (Led, Built, Designed, Managed, Created). DO NOT use flowery verbs like "Spearheaded", "Steered", "Orchestrated", "Fostered", "Championed", or "Pioneered"
             3. Remove unnecessary adjectives that add no value (avoid "robust", "seamless", "consistent", "comprehensive" unless they're essential)
-            4. Focus on measurable results and quantifiable achievements where possible
-            5. Highlight relevant technical skills and technologies mentioned in the job description
-            6. Be concise: the output should be the same length or shorter than the input
-            7. Focus on facts: what was done and the result, not flowery descriptions
-            8. Use keywords from the job description naturally
-            9. Remember: "Professional" means "Precise", not "Fancy" """
-            
-            user_prompt = f"""
+            4. Focus on measurable results and quantifiable achievements where already present
+            5. Be concise: the output should be the same length or shorter than the input
+            6. Focus on facts: what was done and the result, not flowery descriptions
+            7. Do not add skills, technologies, or phrasing from outside the source text
+            8. Remember: "Professional" means "Precise", not "Fancy" """
+
+            if key_requirements is not None:
+                user_prompt = f"""
             Key Job Requirements:
             {key_requirements}
-            
+
             Current {section_type.replace('_', ' ').title()} Content:
             {section_content}
-            
+
             Instructions:
             {instruction_text}
-            
+
+            Return only the rephrased content, no additional text or explanations.
+            """
+            else:
+                user_prompt = f"""
+            Current {section_type.replace('_', ' ').title()} Content:
+            {section_content}
+
+            Instructions:
+            {instruction_text}
+
             Return only the rephrased content, no additional text or explanations.
             """
             

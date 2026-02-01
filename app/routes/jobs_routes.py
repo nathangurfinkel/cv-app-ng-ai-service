@@ -155,18 +155,34 @@ def create_rephrase_job(
     x_user_api_key: str | None = Header(default=None, alias="X-User-Api-Key"),
     tier: UserTier = Depends(require_ai_operations),
 ) -> JobCreateResponse:
-    svc = _get_jobs_service()
-    job_id = svc.create_rephrase_job(
-        section_content=request.section_content,
-        section_type=request.section_type,
-        job_description=request.job_description,
-        instruction_type=request.instruction_type,
-        custom_instruction=request.custom_instruction,
-        user_provider=x_user_provider,
-        user_api_key=x_user_api_key,
-        user_tier=tier.value,
-    )
-    return JobCreateResponse(job_id=job_id, status=JobStatus.queued)
+    try:
+        svc = _get_jobs_service()
+        job_id = svc.create_rephrase_job(
+            section_content=request.section_content,
+            section_type=request.section_type,
+            job_description=request.job_description,
+            instruction_type=request.instruction_type,
+            custom_instruction=request.custom_instruction,
+            user_provider=x_user_provider,
+            user_api_key=x_user_api_key,
+            user_tier=tier.value,
+        )
+        logger.info("[JOB_ROUTE] Rephrase job created successfully", extra={
+            "job_id": job_id,
+            "status": JobStatus.queued.value,
+        })
+        return JobCreateResponse(job_id=job_id, status=JobStatus.queued)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to create rephrase job", extra={
+            "error": str(e),
+            "error_type": type(e).__name__,
+        })
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create rephrase job: {str(e)}",
+        )
 
 
 @router.post("/recommend", status_code=202, response_model=JobCreateResponse)
